@@ -37,6 +37,17 @@ async function rows(owner) {
   return sql`SELECT id, user_id, name, job, instructions, avatar, sandbox_id FROM bots WHERE user_id = ${owner} ORDER BY created_at`;
 }
 
+async function verifyDirectChat(owner, botId) {
+  const chats = await sql`SELECT id, user_id, kind, name, last_message_preview FROM chats WHERE user_id = ${owner}`;
+  assert.equal(chats.length, 1, "each new bot creates exactly one chat owned by its Auth0 user");
+  assert.equal(chats[0].kind, "direct");
+  assert.equal(chats[0].name, null);
+  assert.equal(chats[0].last_message_preview, null);
+  const members = await sql`SELECT chat_id, bot_id FROM chat_members WHERE chat_id = ${chats[0].id} OR bot_id = ${botId}`;
+  assert.deepEqual(members, [{ chat_id: chats[0].id, bot_id: botId }], "the new direct chat contains only its new bot");
+  return chats[0];
+}
+
 async function openDialog(page) {
   await page.getByRole("button", { name: "Create a new bot", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "Create your bot", exact: true });
@@ -150,6 +161,7 @@ try {
   await dialog.getByRole("button", { name: "Create bot", exact: true }).click();
   await dialog.getByText("We couldn’t verify your bot’s avatar. Please reopen this dialog and try again.", { exact: true }).waitFor();
   assert.equal((await rows(owner)).length, 0, "ambiguous avatar input cannot create a row");
+  assert.equal((await sql`SELECT id FROM chats WHERE user_id = ${owner}`).length, 0, "rejected inputs must not create chats");
   await dialog.locator("[data-test-field='true']").evaluateAll((inputs) => inputs.forEach((input) => input.remove()));
   assert.equal(await dialog.locator("input[name='avatar']").inputValue(), seed, "failed retry keeps the original seed");
   const nodePreset = BOT_PRESETS.find((preset) => preset.id === "nodejs");
@@ -180,6 +192,7 @@ try {
   assert.equal(saved[0].sandbox_id, null);
   assert.equal(saved[0].job, nodePreset.job, "the selected developer role is persisted");
   assert.equal(saved[0].instructions, "Keep these instructions through retries.");
+  const savedChat = await verifyDirectChat(owner, saved[0].id);
   const portrait = page.getByRole("img", { name: "Avatar persistence check avatar", exact: true });
   assert.equal(await portrait.getAttribute("data-creature"), identity.species);
   assert.equal(await portrait.getAttribute("data-creature-variant"), identity.variant);
@@ -196,7 +209,7 @@ try {
   const other = await openDialog(second.page);
   await other.dialog.getByLabel("Name", { exact: true }).fill("Ownership boundary check");
   await other.dialog.getByLabel("What’s their job?", { exact: true }).fill("Verify session-scoped creation");
-  await addFields(other.dialog, { userId: owner, id: saved[0].id, sandboxId: "forged-sandbox", createdAt: "2000-01-01" });
+  await addFields(other.dialog, { userId: owner, id: saved[0].id, chatId: savedChat.id, botId: saved[0].id, kind: "group", sandboxId: "forged-sandbox", createdAt: "2000-01-01" });
   await other.dialog.getByRole("button", { name: "Create bot", exact: true }).click();
   await other.dialog.waitFor({ state: "hidden" });
   const secondSaved = await rows(second.owner);
@@ -206,6 +219,9 @@ try {
   assert.equal(secondSaved[0].sandbox_id, null, "protected fields must not be mass assigned");
   assert.notEqual(secondSaved[0].id, saved[0].id);
   assert.deepEqual(await rows(owner), saved, "a forged owner must not alter the other user's row");
+  const secondChat = await verifyDirectChat(second.owner, secondSaved[0].id);
+  assert.notEqual(secondChat.id, savedChat.id, "chat IDs are generated on the server");
+  assert.deepEqual(await verifyDirectChat(owner, saved[0].id), savedChat);
 
   const expired = await openDialog(second.page);
   await expired.dialog.getByLabel("Name", { exact: true }).fill("Must not be saved");
@@ -214,14 +230,16 @@ try {
   await expired.dialog.getByRole("button", { name: "Create bot", exact: true }).click();
   await second.page.waitForURL((url) => url.pathname === "/sign-in");
   assert.equal((await rows(second.owner)).length, 1, "submission without a session cannot create a bot");
+  assert.deepEqual(await verifyDirectChat(second.owner, secondSaved[0].id), secondChat, "an expired session cannot create a chat or membership");
   assert.deepEqual(errors, [], "unexpected browser errors");
-  console.log("Dashboard avatar checks passed: compact single-avatar dialog, dashboard-to-dialog identity, retained form fields, pending lock, validation retries, ownership isolation, and portrait-only cards.");
+  console.log("Dashboard checks passed: avatar persistence, form validation, Auth0 ownership, and linked direct-chat creation.");
 } finally {
   for (const context of contexts) await context.close();
   await browser.close();
   if (sql) {
     for (const owner of owners) {
       assert.match(owner, /^creature-preview-[0-9a-f-]{36}$/);
+      await sql`DELETE FROM chats WHERE user_id = ${owner}`;
       await sql`DELETE FROM bots WHERE user_id = ${owner}`;
     }
   }

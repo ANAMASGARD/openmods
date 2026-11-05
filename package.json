@@ -10,6 +10,7 @@
     "test:auth": "node --import tsx --test tests/auth-session.test.ts",
     "test:auth:browser": "node --import tsx scripts/check-auth-session.mjs",
     "db:check": "tsx scripts/db-check.ts",
+    "test:chats:db": "tsx scripts/check-chat-schema.ts",
     "creatures:portraits": "node scripts/capture-creature-portraits.mjs",
     "test:creatures": "node --import tsx --test tests/creature-*.test.ts",
     "test:creatures:browser": "node --import tsx scripts/check-creature-preview.mjs",

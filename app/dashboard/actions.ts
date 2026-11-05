@@ -2,10 +2,11 @@
 
 import { refresh } from "next/cache";
 import { redirect } from "next/navigation";
+import { nanoid } from "nanoid";
 import { auth0 } from "@/lib/auth0";
 import { parseBotInput, type BotInputErrors } from "@/lib/bot-input";
 import { getDb } from "@/lib/db";
-import { bots } from "@/lib/db/schema";
+import { bots, chats, chatMembers } from "@/lib/db/schema";
 
 export type CreateBotState = {
   success?: boolean;
@@ -21,13 +22,22 @@ export async function createBot(formData: FormData): Promise<CreateBotState> {
   if (!valid) return { errors };
 
   try {
-    await getDb().insert(bots).values({
-      userId: session.user.sub,
-      name: values.name,
-      avatar: values.avatar,
-      job: values.job,
-      instructions: values.instructions || null,
-    });
+    const db = getDb();
+    const botId = nanoid();
+    const chatId = nanoid();
+    // Neon HTTP batches run in one transaction: no partial bot/chat on failure.
+    await db.batch([
+      db.insert(bots).values({
+        id: botId,
+        userId: session.user.sub,
+        name: values.name,
+        avatar: values.avatar,
+        job: values.job,
+        instructions: values.instructions || null,
+      }),
+      db.insert(chats).values({ id: chatId, userId: session.user.sub, kind: "direct" }),
+      db.insert(chatMembers).values({ chatId, botId }),
+    ]);
   } catch {
     return { error: "We couldn’t save your bot. Your details are still here — please try again." };
   }
