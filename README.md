@@ -1,5 +1,8 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
+See [Project summary](./PROJECT_SUMMARY.md) for completed work, architecture,
+verification results, current Git state, and deployment next steps.
+
 ## Getting Started
 
 First, run the development server:
@@ -80,30 +83,37 @@ Postgres supplies `created_at` with `now()` when omitted.
 
 ## AI chat
 
-Chat pages use AI SDK 7 and AI Elements with a text-only OpenAI streaming route.
+Chat pages use AI SDK 7, AI Elements, and the `openmods-chat` Trigger.dev agent.
 Add these server-only settings to `.env.local` and restart the dev server:
 
 ```dotenv
 OPENAI_API_KEY=your-openai-api-key
-# Optional; defaults to gpt-6.1-sol.
-OPENAI_CHAT_MODEL=gpt-6.1-sol
+# Optional; defaults to gpt-6-luna.
+OPENAI_CHAT_MODEL=gpt-6-luna
 ```
 
-The route authenticates with Auth0, checks chat ownership, and loads the bot's
-saved job and instructions on the server. Conversation messages stay in browser
-memory: they are not written to the database and are lost on reload. No tools,
-file uploads, microphone capture, or external integrations are enabled.
+Server actions authenticate with Auth0 and check chat ownership before starting a
+session, refreshing a scoped token, or loading history. The worker loads the bot’s
+saved job and instructions from the database. Trigger.dev’s default transcript
+storage persists messages by chat ID and restores history and the streaming cursor
+on reload. No database schema change is needed. No agent tools or file uploads are enabled.
+The existing microphone control uses browser speech recognition.
 
 The composer supports Enter to send, Shift+Enter for a new line, response styles,
 starter prompts, stopping generation, and retrying failed replies. API keys are
 never sent to the browser. `npm run test:chat:browser` uses synthetic local Auth0
-sessions and a mock SSE response; it does not make a paid OpenAI request.
+sessions and a mock Trigger.dev backend; it does not make a paid OpenAI request.
+Stop the regular Next.js dev server first: the browser check starts and stops its
+own local Next.js instance. `npm run test:chat` checks authorization, message
+validation, and the agent’s persistence, regeneration, error, and stop behavior.
 
 ## Background tasks with Trigger.dev
 
 The project is linked to `proj_yyokorioekbldyziwkwb`. Tasks live in `src/trigger/`
 and use `@trigger.dev/sdk`. `trigger.config.ts` selects Node.js 24 and caps task
-runs at 60 seconds. The SDK, build package, and development CLI use version 4.8.1.
+runs at 60 seconds by default. The chat agent allows a one-hour run with a
+60-second per-turn timeout. The SDK, build package, and development CLI use
+version 4.8.1.
 
 Sign in once with `npx trigger.dev@latest login`. Put the project's **development**
 secret key in the Git-ignored `.env` file:
@@ -128,6 +138,9 @@ second terminal and wait for the result:
 npx trigger.dev@4.8.1 tasks trigger openmods-healthcheck --env dev --wait --timeout 60
 ```
 
-Keep the development worker running to execute development tasks. Export every
+Keep the development worker running to execute development tasks. The chat worker
+also needs `DATABASE_URL`, `OPENAI_API_KEY`, and optionally `OPENAI_CHAT_MODEL`.
+`npm run dev:trigger` loads `.env.local`, including `OPENAI_CHAT_MODEL`; restart
+the worker after changing it. Configure the same server-only variables in Trigger.dev for deployment. Export every
 task, use built-in `fetch`, and call `wait.*`, `triggerAndWait`, and
 `batchTriggerAndWait` sequentially rather than putting them in `Promise.all`.

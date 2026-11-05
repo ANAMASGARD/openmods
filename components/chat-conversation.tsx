@@ -1,8 +1,12 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
-import { DefaultChatTransport } from "ai";
+import type { UIMessage } from "ai";
+import { useTriggerChatTransport } from "@trigger.dev/sdk/chat/react";
+import type { ChatSessionPersistedState } from "@trigger.dev/sdk/chat";
+import type { openmodsChat } from "@/src/trigger/chat";
+import { mintChatAccessToken, startChatSession } from "@/app/chats/actions";
 import { motion, useReducedMotion } from "motion/react";
 import { ArrowUpIcon, CheckIcon, Code2Icon, ListChecksIcon, MicIcon, PlusIcon, RotateCcwIcon, SquareIcon, ChevronDownIcon, TerminalIcon } from "lucide-react";
 import { CHAT_TEXT_LIMIT, replyStyles, type ReplyStyle } from "@/lib/chat-input";
@@ -22,15 +26,25 @@ const starters = [
   { label: "Explain an error", text: "Help me understand and fix this error:\n\n", icon: TerminalIcon },
 ];
 
-export function ChatConversation({ chatId, name }: { chatId: string; name: string }) {
+export function ChatConversation({ chatId, name, initialMessages, initialSession }: {
+  chatId: string; name: string; initialMessages: UIMessage[]; initialSession?: ChatSessionPersistedState;
+}) {
   const [draft, setDraft] = useState("");
   const dictation = useChatDictation(setDraft);
   const [style, setStyle] = useState<ReplyStyle>("balanced");
   const [inputError, setInputError] = useState<string>();
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const sending = useRef(false);
-  const transport = useMemo(() => new DefaultChatTransport({ api: "/api/chat", body: { chatId } }), [chatId]);
-  const { messages, sendMessage, status, stop, error, regenerate, clearError } = useChat({ id: chatId, transport });
+  const transport = useTriggerChatTransport<typeof openmodsChat>({
+    task: "openmods-chat",
+    accessToken: ({ chatId }) => mintChatAccessToken(chatId),
+    startSession: ({ chatId }) => startChatSession({ chatId }),
+    clientData: { style },
+    sessions: initialSession ? { [chatId]: initialSession } : undefined,
+  });
+  const { messages, sendMessage, status, stop, error, regenerate, clearError } = useChat({
+    id: chatId, transport, messages: initialMessages, resume: !!initialSession,
+  });
   const busy = status === "submitted" || status === "streaming";
   const hasDraft = draft.trim().length > 0;
   const hasMessages = messages.length > 0;
@@ -76,7 +90,7 @@ export function ChatConversation({ chatId, name }: { chatId: string; name: strin
           transition={{ layout: { duration: 0.22, ease: [0.22, 1, 0.36, 1] } }}
           data-chat-composer-motion
         >
-          {(error || inputError || dictation.error) && <Alert variant="destructive" className="mb-3"><AlertDescription className="flex flex-wrap items-center justify-between gap-2"><span>{dictation.error ?? inputError ?? "Couldn’t get a reply. Your message is still here. Try again in a moment."}</span>{error && <Button variant="ghost" size="sm" disabled={busy} onClick={() => { if (sending.current) return; sending.current = true; dictation.cancel(); clearError(); void regenerate({ body: { style } }).finally(() => { sending.current = false; }); }}><RotateCcwIcon data-icon="inline-start" />Retry</Button>}</AlertDescription></Alert>}
+          {(error || inputError || dictation.error) && <Alert variant="destructive" className="mb-3"><AlertDescription className="flex flex-wrap items-center justify-between gap-2"><span>{dictation.error ?? inputError ?? "Couldn’t get a reply. Your message is still here. Try again in a moment."}</span>{error && <Button variant="ghost" size="sm" disabled={busy} onClick={() => { if (sending.current) return; sending.current = true; dictation.cancel(); clearError(); void regenerate().finally(() => { sending.current = false; }); }}><RotateCcwIcon data-icon="inline-start" />Retry</Button>}</AlertDescription></Alert>}
           <PromptInput
             aria-label="Message composer"
             maxFiles={0}
@@ -89,7 +103,7 @@ export function ChatConversation({ chatId, name }: { chatId: string; name: strin
               setInputError(undefined);
               clearError();
               setDraft("");
-              void sendMessage({ text: text.trim() }, { body: { style } }).finally(() => { sending.current = false; });
+              void sendMessage({ text: text.trim() }).finally(() => { sending.current = false; });
             }}
           >
             <InputGroupAddon align="inline-start" className="self-end p-0 has-[>button]:ml-0">
@@ -125,7 +139,7 @@ export function ChatConversation({ chatId, name }: { chatId: string; name: strin
               </Button>
               <PromptInputSubmit
                 status={status}
-                onStop={() => { void stop(); }}
+                onStop={() => { void stop(); void transport.stopGeneration(chatId).then((stopped) => { if (!stopped) setInputError("Couldn’t stop the reply. Please try again."); }); }}
                 disabled={!busy && !hasDraft}
                 aria-label={busy ? "Stop response" : "Send message"}
                 title={busy ? "Stop response" : hasDraft ? "Send message" : "Type a message to send"}
@@ -143,7 +157,7 @@ export function ChatConversation({ chatId, name }: { chatId: string; name: strin
             </InputGroupAddon>
           </PromptInput>
           <p className="mt-2 text-center text-[11px] text-muted-foreground" role={dictation.phase !== "idle" ? "status" : undefined}>
-            {dictation.phase === "starting" ? "Waiting for microphone permission…" : dictation.phase === "listening" ? "Listening… Tap the microphone to finish." : dictation.phase === "stopping" ? "Finishing dictation…" : "AI can make mistakes. Messages aren’t saved after a reload."}
+            {dictation.phase === "starting" ? "Waiting for microphone permission…" : dictation.phase === "listening" ? "Listening… Tap the microphone to finish." : dictation.phase === "stopping" ? "Finishing dictation…" : "AI can make mistakes. Messages are saved to this chat."}
           </p>
         </motion.div>
         {!hasMessages && <div className="mt-6 flex flex-wrap justify-center gap-2" aria-label="Suggested prompts">

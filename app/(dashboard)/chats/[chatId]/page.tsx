@@ -7,6 +7,7 @@ import { ChatHeader } from "@/components/chat-header";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
+import { loadChatHistory } from "@/app/chats/actions";
 
 type ChatPageProps = { params: Promise<{ chatId: string }> };
 
@@ -15,8 +16,10 @@ async function ChatContent({ params }: ChatPageProps) {
   if (!session?.user.sub) redirect("/sign-in");
   const { chatId } = await params;
   let chat;
+  let history;
   try {
     chat = await getUserChat(chatId);
+    if (chat) history = await loadChatHistory(chatId);
   } catch {
     return (
       <div className="mx-auto flex w-full max-w-sm flex-col gap-4 p-6">
@@ -33,7 +36,7 @@ async function ChatContent({ params }: ChatPageProps) {
   return (
     <>
       <ChatHeader name={chat.name} avatar={chat.avatar} bot={chat.bot} />
-      <ChatConversation key={chat.id} chatId={chat.id} name={chat.name} />
+      <ChatConversation key={chat.id} chatId={chat.id} name={chat.name} initialMessages={history?.messages ?? []} initialSession={history?.session} />
     </>
   );
 }

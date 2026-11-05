@@ -1,17 +1,30 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { createServer } from "node:http";
+import { spawn } from "node:child_process";
+import { openSync } from "node:fs";
+import { createMockTriggerChat } from "./mock-trigger-chat.mjs";
 import { neon } from "@neondatabase/serverless";
 import { chromium } from "playwright";
 import { decrypt } from "../node_modules/@auth0/nextjs-auth0/dist/server/cookies.js";
 import { createPreviewContext } from "./creature-preview-session.mjs";
 
 const baseUrl = process.argv[2] ?? "http://localhost:3000";
+const target = new URL(baseUrl);
+if (target.protocol !== "http:" || !["localhost", "127.0.0.1", "[::1]"].includes(target.hostname)) throw new Error("Chat checks require an HTTP localhost URL.");
+let occupied = false;
+try { await fetch(baseUrl, { signal: AbortSignal.timeout(1000) }); occupied = true; } catch { /* no server */ }
+if (occupied) throw new Error("Stop the existing Next.js dev server before running chat browser checks; this check starts its own server with a mock Trigger backend.");
 const browser = await chromium.launch();
 const contexts = [], owners = [];
 const botId = randomUUID(), chatId = randomUUID();
-let sql, mode = "reply", requests = [];
-const timers = new Set();
+let sql;
+const mock = await createMockTriggerChat(baseUrl);
+const requests = mock.requests;
+const next = spawn(process.execPath, ["node_modules/next/dist/bin/next", "dev", "--port", new URL(baseUrl).port || "3000"], { env: { ...process.env, TRIGGER_API_URL: mock.origin, TRIGGER_SECRET_KEY: "tr_dev_test_only_not_a_real_key" }, stdio: ["ignore", openSync("/tmp/openmods-chat-browser-next.log", "w"), openSync("/tmp/openmods-chat-browser-next-errors.log", "w")] });
+for (let attempt = 0; attempt < 90; attempt++) {
+  if (next.exitCode !== null) { await mock.close(); await browser.close(); throw new Error("The test Next.js server could not start. See /tmp/openmods-chat-browser-next-errors.log."); }
+  try { await fetch(baseUrl); break; } catch { await new Promise(resolve => setTimeout(resolve, 1000)); }
+}
 
 async function waitForComposerLayout(page) {
   await page.waitForFunction(() => {
@@ -54,30 +67,6 @@ async function checkDocked(page) {
   assert.ok(transcript.y + transcript.height <= dock.y + 1, "transcript does not overlap the composer");
 }
 
-const mockServer = createServer((req, res) => {
-  let body = "";
-  req.on("data", (chunk) => { body += chunk; });
-  req.on("end", () => {
-    if (req.method === "OPTIONS") { res.writeHead(204, { "Access-Control-Allow-Origin": new URL(baseUrl).origin, "Access-Control-Allow-Headers": "content-type", "Access-Control-Allow-Methods": "POST", "Access-Control-Allow-Credentials": "true" }); res.end(); return; }
-    requests.push(JSON.parse(body));
-    const cors = { "Access-Control-Allow-Origin": new URL(baseUrl).origin, "Access-Control-Allow-Credentials": "true" };
-    if (mode === "fail") { res.writeHead(503, cors); res.end("Test provider unavailable"); return; }
-    res.writeHead(200, { ...cors, "Content-Type": "text/event-stream", "Cache-Control": "no-cache", "x-vercel-ai-ui-message-stream": "v1" });
-    const send = (chunk) => res.write(`data: ${JSON.stringify(chunk)}\n\n`);
-    send({ type: "start", messageId: randomUUID() });
-    send({ type: "start-step" }); send({ type: "text-start", id: "text" });
-    send({ type: "text-delta", id: "text", delta: "Here’s a practical plan" });
-    const timer = setTimeout(() => {
-      timers.delete(timer);
-      send({ type: "text-delta", id: "text", delta: mode === "long" ? "\n\nA detailed explanation with enough content to scroll.\n\n".repeat(45) : ":\n\n1. Reproduce the issue.\n2. Add a regression test.\n3. Ship the smallest fix." });
-      send({ type: "text-end", id: "text" }); send({ type: "finish-step" }); send({ type: "finish", finishReason: "stop" }); res.end("data: [DONE]\n\n");
-    }, mode === "slow" ? 15000 : 1200);
-    timers.add(timer);
-    res.on("close", () => { clearTimeout(timer); timers.delete(timer); });
-  });
-});
-await new Promise((resolve) => mockServer.listen(0, "127.0.0.1", resolve));
-const mockUrl = `http://127.0.0.1:${mockServer.address().port}`;
 try {
   for (let i = 0; i < 2; i++) {
     const context = await createPreviewContext(browser, baseUrl, { viewport: { width: 1440, height: 900 }, reducedMotion: "reduce" }); contexts.push(context);
@@ -87,14 +76,15 @@ try {
   await sql`INSERT INTO bots (id,user_id,name,avatar,job) VALUES (${botId},${owners[0]},'Atlas','chatComposerSeed123456','Developer')`;
   await sql`INSERT INTO chats (id,user_id,kind) VALUES (${chatId},${owners[0]},'direct')`;
   await sql`INSERT INTO chat_members (chat_id,bot_id) VALUES (${chatId},${botId})`;
-  const payload = { chatId, messages: [{ id: "first", role: "user", parts: [{ type: "text", text: "Hello" }] }] };
-  const api = new URL("/api/chat", baseUrl).href;
   const anonymous = await browser.newContext(); contexts.push(anonymous);
-  assert.equal((await anonymous.request.post(api, { data: payload })).status(), 401);
-  assert.equal((await contexts[1].request.post(api, { data: payload })).status(), 404);
-  assert.equal((await contexts[0].request.post(api, { data: { ...payload, messages: [{ ...payload.messages[0], role: "system" }] } })).status(), 400);
-  assert.equal((await contexts[0].request.post(api, { data: { ...payload, chatId: "missing" } })).status(), 404);
-  if (!process.env.OPENAI_API_KEY) assert.equal((await contexts[0].request.post(api, { data: payload })).status(), 503);
+  const foreignPage = await contexts[1].newPage();
+  await foreignPage.goto(new URL(`/chats/${chatId}`, baseUrl).href);
+  await foreignPage.getByText("This page could not be found.").waitFor();
+  await foreignPage.close();
+  const deniedPage = await anonymous.newPage();
+  await deniedPage.goto(new URL(`/chats/${chatId}`, baseUrl).href);
+  await deniedPage.waitForURL(/sign-in/);
+  await deniedPage.close();
   const page = await contexts[0].newPage();
   await page.addInitScript(() => {
     window.speechSessions = [];
@@ -117,7 +107,10 @@ try {
     window.webkitSpeechRecognition = undefined;
   });
   const errors = []; page.on("pageerror", (error) => errors.push(error.message));
-  await page.route(api, (route) => route.continue({ url: mockUrl }));
+  await page.addInitScript((origin) => {
+    const originalFetch = window.fetch;
+    window.fetch = (input, init) => originalFetch(typeof input === "string" && input.startsWith("https://api.trigger.dev/") ? input.replace("https://api.trigger.dev", origin) : input, init);
+  }, mock.origin);
   const chatUrl = new URL(`/chats/${chatId}`, baseUrl).href;
   await page.goto(chatUrl);
   const input = page.getByRole("textbox", { name: "Message Atlas", exact: true });
@@ -213,22 +206,23 @@ try {
   assert.equal(requests[0].chatId, chatId); assert.equal(requests[0].style, "concise");
   assert.equal(await page.locator("ol").evaluate((element) => getComputedStyle(element).listStyleType), "decimal", "markdown lists retain numbering");
   await page.screenshot({ path: "/tmp/openmods-composer-reply.png", animations: "disabled" });
-  mode = "slow"; await input.fill("A second question"); await input.press("Enter");
+  mock.mode = "slow"; await input.fill("A second question"); await input.press("Enter");
+  await page.waitForFunction(() => [...document.querySelectorAll(".is-assistant")].length >= 2);
   await page.getByRole("button", { name: "Stop response", exact: true }).click();
   await page.getByRole("button", { name: "Send message", exact: true }).waitFor();
   await checkDocked(page);
-  mode = "fail"; await input.fill("Keep this question for retry"); await input.press("Enter");
+  mock.mode = "fail"; await input.fill("Keep this question for retry"); await input.press("Enter");
   const chatAlert = page.getByRole("region", { name: "Conversation with Atlas" }).getByRole("alert");
   await chatAlert.waitFor();
   await checkDocked(page);
   await page.getByText("Keep this question for retry", { exact: true }).waitFor();
-  mode = "reply"; await page.getByRole("button", { name: "Retry", exact: true }).click();
+  mock.mode = "reply"; await page.getByRole("button", { name: "Retry", exact: true }).click();
   await page.getByRole("button", { name: "Stop response", exact: true }).waitFor();
   await page.getByRole("button", { name: "Send message", exact: true }).waitFor();
   assert.equal(await page.getByText("Keep this question for retry", { exact: true }).count(), 1);
   assert.equal(await chatAlert.count(), 0);
   await checkDocked(page);
-  mode = "long"; await input.fill("Explain in detail"); await input.press("Enter");
+  mock.mode = "long"; await input.fill("Explain in detail"); await input.press("Enter");
   await page.getByRole("button", { name: "Stop response", exact: true }).waitFor();
   await page.getByRole("button", { name: "Send message", exact: true }).waitFor();
   await checkDocked(page);
@@ -241,8 +235,9 @@ try {
   });
   await checkDocked(page);
   await page.reload(); await input.waitFor();
-  await checkWelcome(page);
-  assert.equal(await page.getByText("Keep this question for retry", { exact: true }).count(), 0);
+  await checkDocked(page);
+  assert.equal(await page.getByText("Keep this question for retry", { exact: true }).count(), 1, "history survives reload");
+  mock.reset(); await page.reload(); await input.waitFor();
   for (const [width, height] of [[390, 844], [320, 568], [390, 400]]) {
     await page.setViewportSize({ width, height });
     await checkWelcome(page);
@@ -262,7 +257,7 @@ try {
     await page.getByRole("menu").press("Escape");
     await page.getByRole("menu").waitFor({ state: "hidden" });
     assert.ok(await input.evaluate((element) => element === document.activeElement), "Escape returns focus to the input");
-    mode = "reply"; await input.fill("A mobile question"); await input.press("Enter");
+    mock.mode = "reply"; await input.fill("A mobile question"); await input.press("Enter");
     await page.getByRole("button", { name: "Stop response", exact: true }).waitFor();
     await checkDocked(page);
     await page.getByRole("button", { name: "Send message", exact: true }).waitFor();
@@ -271,7 +266,7 @@ try {
     const dockedSend = await send.boundingBox();
     assert.ok(dockedSend.y >= 0 && dockedSend.y + dockedSend.height <= height, "multiline docked send stays visible");
     await page.screenshot({ path: `/tmp/openmods-composer-docked-${width}-${height}.png`, animations: "disabled" });
-    await page.reload(); await input.waitFor();
+    mock.reset(); await page.reload(); await input.waitFor();
   }
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.emulateMedia({ reducedMotion: "no-preference" });
@@ -306,16 +301,16 @@ try {
   assert.equal(await input.inputValue(), "Keep this follow-up draft", "navigation preserves the draft without restarting dictation");
   assert.ok(await page.evaluate(() => window.speechSessions.every((session) => session.aborted)), "returning never resumes recording automatically");
   const [chat] = await sql`SELECT last_message_preview FROM chats WHERE id=${chatId}`;
-  assert.equal(chat.last_message_preview, null, "chat requests do not persist messages or previews");
+  assert.equal(chat.last_message_preview, null, "transcripts are stored by Trigger.dev, without changing chat preview rows");
   assert.deepEqual(errors, []);
-  console.log("Composer passed: compact controls, dictation start/stop/final words, edits, limits, permission/network/unsupported/startup failures, stale-result protection, unmount cleanup; centered 56px welcome, docking/motion, desktop/mobile fit, scrolling, keyboard, streaming, retry and API validation. Synthetic local sessions, mock speech recognition and streaming; no live microphone, OAuth or OpenAI call.");
+  console.log("Composer passed: compact controls, dictation start/stop/final words, edits, limits, permission/network/unsupported/startup failures, stale-result protection, unmount cleanup; centered 56px welcome, docking/motion, desktop/mobile fit, scrolling, keyboard, streaming, retry and transcript persistence. Synthetic local sessions, mock speech recognition and streaming; no live microphone, OAuth or OpenAI call.");
 } catch (error) {
   const page = contexts[0]?.pages()[0];
   if (page) await page.screenshot({ path: "/tmp/openmods-composer-failure.png" });
   throw error;
 } finally {
   if (sql) { await sql`DELETE FROM chats WHERE id=${chatId}`; await sql`DELETE FROM bots WHERE id=${botId}`; }
-  for (const timer of timers) clearTimeout(timer);
-  mockServer.closeAllConnections(); await new Promise((resolve) => mockServer.close(resolve));
+  next.kill("SIGTERM");
+  await mock.close();
   await Promise.all(contexts.map((context) => context.close())); await browser.close();
 }
