@@ -38,9 +38,9 @@ async function SidebarAccount() {
   }} />;
 }
 
-export function AppSidebar() {
+export function AppSidebar({ defaultOpen = true }: { defaultOpen?: boolean }) {
   return (
-    <Suspense fallback={<div className="hidden h-svh w-(--sidebar-width) shrink-0 flex-col gap-2 bg-sidebar p-2 md:flex" aria-label="Loading chats"><Skeleton className="h-8 w-full" /><Skeleton className="h-16 w-full" /><Skeleton className="h-16 w-full" /></div>}>
+    <Suspense fallback={<div className="hidden h-svh shrink-0 flex-col gap-2 bg-sidebar p-2 md:flex" style={{ width: defaultOpen ? "var(--sidebar-width)" : "var(--sidebar-width-icon)" }} aria-label="Loading chats"><Skeleton className="h-8 w-full" /><Skeleton className="h-16 w-full" /><Skeleton className="h-16 w-full" /></div>}>
       <SidebarData />
     </Suspense>
   );

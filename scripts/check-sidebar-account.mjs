@@ -36,6 +36,7 @@ try {
       assert.ok(!(await page.content()).includes("private-access-token-must-not-leak"));
       if (width === 1280) await trigger.getByText("AM", { exact: true }).waitFor();
       if (width === 390) assert.ok(await trigger.locator("img").evaluate((img) => img.complete && img.naturalWidth > 0));
+      if (width === 1280) await page.getByRole("button", { name: "Toggle sidebar rail", exact: true }).click();
       await trigger.focus();
       await page.keyboard.press("Enter");
       const menu = page.getByRole("menu");

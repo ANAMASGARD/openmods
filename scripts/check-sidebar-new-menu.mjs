@@ -22,6 +22,8 @@ try {
       await page.goto(new URL("/dashboard", baseUrl).href);
       if (width < 768) await page.getByRole("button", { name: "Toggle Sidebar", exact: true }).click();
       const trigger = page.getByRole("button", { name: "Create new", exact: true });
+      await trigger.waitFor();
+      if (width >= 768) await page.getByRole("button", { name: "Toggle sidebar rail", exact: true }).click();
       for (const activation of ["click", "Enter", "Space"]) {
         await trigger.click();
         const item = page.getByRole("menuitem", { name: "Create new bot", exact: true });

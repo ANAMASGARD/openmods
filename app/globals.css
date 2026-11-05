@@ -130,6 +130,9 @@
 }
 
 .dashboard-theme {
+  --sidebar: #0e0e0e;
+  --sidebar-accent: #252525;
+  --sidebar-border: #262626;
   --background: #080808;
   --card: #141414;
   --popover: #141414;

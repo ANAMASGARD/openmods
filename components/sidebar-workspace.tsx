@@ -1,19 +1,24 @@
 "use client";
 
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { MessageCircleIcon, SearchIcon } from "lucide-react";
 import { ChatAvatar } from "@/components/chat-avatar";
 import { useCreatureMotion } from "@/components/creatures/creature-motion";
 import { SidebarChats, type SidebarChat } from "@/components/sidebar-chats";
 import { SidebarNewMenu } from "@/components/sidebar-new-menu";
-import { Button } from "@/components/ui/button";
 import { Command, CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Kbd, KbdGroup } from "@/components/ui/kbd";
-import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader, useSidebar } from "@/components/ui/sidebar";
+import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarRail, SidebarTrigger, useSidebar } from "@/components/ui/sidebar";
+
+const subscribeToPlatform = () => () => {};
+const getShortcutModifier = () => /Mac|iPhone|iPad|iPod/.test(navigator.userAgent) ? "⌘" : "Ctrl";
+const getServerShortcutModifier = () => "Ctrl";
 
 export function SidebarWorkspace({ chats, error, account }: { chats: SidebarChat[]; error?: string; account: ReactNode }) {
   const [open, setOpen] = useState(false);
+  const shortcutModifier = useSyncExternalStore(subscribeToPlatform, getShortcutModifier, getServerShortcutModifier);
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -41,23 +46,32 @@ export function SidebarWorkspace({ chats, error, account }: { chats: SidebarChat
 
   return (
     <>
-      <Sidebar className="dark dashboard-theme">
-        <SidebarHeader>
-          <div className="flex justify-end pr-10 md:pr-0"><SidebarNewMenu /></div>
-          <Button ref={triggerRef} type="button" variant="ghost" aria-label="Search chats" aria-haspopup="dialog" aria-expanded={open} aria-keyshortcuts="Meta+k Control+k"
-            className="h-8 w-full min-w-0 justify-start rounded-lg border border-input bg-transparent px-2.5 py-1 text-base font-normal text-muted-foreground transition-colors outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 md:text-sm dark:bg-input/30"
-            onClick={() => { if (isMobile) setOpenMobile(false); setOpen(true); }}>
-            <SearchIcon /><span className="flex-1 text-left">Search</span>
-            <KbdGroup aria-hidden="true"><Kbd>⌘ / Ctrl</Kbd><Kbd>K</Kbd></KbdGroup>
-          </Button>
+      <Sidebar collapsible="icon" className="dark dashboard-theme workspace-sidebar">
+        <SidebarHeader className="gap-4 p-3 pb-1">
+          <div className="flex h-10 items-center gap-2 pr-10 md:pr-0">
+            <SidebarTrigger className="hidden size-10 shrink-0 rounded-xl md:inline-flex [&>svg]:size-5" />
+            <Link href="/dashboard" className="flex items-center gap-2 rounded-lg px-2 py-1 text-xl font-semibold tracking-tight focus-visible:outline-2 focus-visible:outline-ring group-data-[collapsible=icon]:hidden" onNavigate={() => setOpenMobile(false)}>OpenMods</Link>
+          </div>
+          <SidebarMenu className="gap-1">
+            <SidebarMenuItem><SidebarNewMenu /></SidebarMenuItem>
+            <SidebarMenuItem>
+              <SidebarMenuButton ref={triggerRef} type="button" tooltip={`Search chats · ${shortcutModifier}+K`} aria-label="Search chats" aria-haspopup="dialog" aria-expanded={open} aria-keyshortcuts="Meta+k Control+k"
+                className="h-10 min-w-0 gap-3 rounded-lg border border-input bg-input/30 px-2.5 py-1 text-sm text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 group-data-[collapsible=icon]:size-10! group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:rounded-xl group-data-[collapsible=icon]:border-transparent group-data-[collapsible=icon]:bg-transparent group-data-[collapsible=icon]:text-sidebar-foreground group-data-[collapsible=icon]:hover:bg-sidebar-accent [&>svg]:size-5"
+                onClick={() => { if (isMobile) setOpenMobile(false); setOpen(true); }}>
+                <SearchIcon /><span className="flex-1 text-left whitespace-nowrap group-data-[collapsible=icon]:hidden">Search chats</span>
+                <KbdGroup aria-hidden="true" className="group-data-[collapsible=icon]:hidden max-md:hidden"><Kbd>{shortcutModifier}</Kbd><Kbd>K</Kbd></KbdGroup>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          </SidebarMenu>
         </SidebarHeader>
         <SidebarContent>
           {error ? <p role="status" className="p-4 text-sm text-muted-foreground">{error}</p> : <SidebarChats chats={chats} />}
         </SidebarContent>
-        <SidebarFooter>{account}</SidebarFooter>
+        <SidebarFooter className="border-t border-sidebar-border p-3">{account}</SidebarFooter>
+        <SidebarRail aria-label="Toggle sidebar rail" tabIndex={0} className="max-md:hidden focus-visible:after:bg-ring" />
       </Sidebar>
       <CommandDialog open={open} onOpenChange={setOpen} title="Search chats" description="Find a chat by its name or latest message. Select a chat to open it."
-        className="dark dashboard-theme top-[min(20vh,8rem)] max-h-[calc(100dvh-2rem)] sm:max-w-lg"
+        className="dark dashboard-theme top-1/2 max-h-[calc(100dvh-2rem)] -translate-y-1/2 sm:max-w-md"
         contentProps={{ initialFocus: inputRef, finalFocus: () => {
           if (triggerRef.current?.getClientRects().length) return triggerRef.current;
           return document.querySelector<HTMLButtonElement>('[data-sidebar="trigger"]');

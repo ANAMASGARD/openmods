@@ -71,7 +71,18 @@ try {
   await page.keyboard.press("Escape");
   await searchDialog.waitFor({ state: "hidden" });
   assert.ok(await searchButton.evaluate((element) => element === document.activeElement));
-  await page.getByRole("button", { name: "Toggle Sidebar", exact: true }).click();
+  await page.getByRole("button", { name: "Toggle sidebar rail", exact: true }).click();
+  await page.waitForFunction(() => Math.round(document.querySelector('[data-slot="sidebar-container"]').getBoundingClientRect().width) === 64);
+  const collapsedControls = page.locator('[data-slot="sidebar-container"] [data-sidebar="menu-button"]');
+  for (const control of await collapsedControls.all()) {
+    const bounds = await control.boundingBox();
+    assert.equal(Math.round(bounds.width), 40, "every collapsed control has the same width");
+    assert.equal(Math.round(bounds.height), 40, "every collapsed control has the same height");
+  }
+  await sidebar.locator(`[data-chat-id="${directChat}"]`).getByRole("link").hover();
+  await page.locator('[data-slot="tooltip-content"]').filter({ hasText: longName }).waitFor();
+  await page.mouse.move(500, 100);
+  await page.screenshot({ path: "/tmp/openmods-sidebar-collapsed.png", animations: "disabled" });
   for (const shortcut of ["Control+k", "Meta+k"]) {
     await page.keyboard.press(shortcut);
     await search.waitFor();

@@ -23,10 +23,10 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import { PanelLeftIcon } from "lucide-react"
+import { MenuIcon, XIcon } from "lucide-react"
 
 const SIDEBAR_COOKIE_NAME = "sidebar_state"
-const SIDEBAR_COOKIE_MAX_AGE = 60 * 60 * 24 * 7
+const SIDEBAR_COOKIE_MAX_AGE = 60 * 60 * 24 * 365
 const SIDEBAR_WIDTH = "16rem"
 const SIDEBAR_WIDTH_MOBILE = "18rem"
 const SIDEBAR_WIDTH_ICON = "3rem"
@@ -83,7 +83,7 @@ function SidebarProvider({
       }
 
       // This sets the cookie to keep the sidebar state.
-      document.cookie = `${SIDEBAR_COOKIE_NAME}=${openState}; path=/; max-age=${SIDEBAR_COOKIE_MAX_AGE}`
+      document.cookie = `${SIDEBAR_COOKIE_NAME}=${openState}; path=/; max-age=${SIDEBAR_COOKIE_MAX_AGE}; SameSite=Lax${location.protocol === "https:" ? "; Secure" : ""}`
     },
     [setOpenProp, open]
   )
@@ -259,7 +259,9 @@ function SidebarTrigger({
   onClick,
   ...props
 }: React.ComponentProps<typeof Button>) {
-  const { toggleSidebar, isMobile, openMobile, open } = useSidebar()
+  const { toggleSidebar, openMobile, open } = useSidebar()
+  const isMobile = useIsMobile()
+  const expanded = isMobile ? openMobile : open
 
   return (
     <Button
@@ -268,7 +270,8 @@ function SidebarTrigger({
       variant="ghost"
       size="icon-sm"
       type="button"
-      aria-expanded={isMobile ? openMobile : open}
+      aria-expanded={expanded}
+      title={expanded ? "Collapse sidebar" : "Expand sidebar"}
       className={cn(className)}
       onClick={(event) => {
         onClick?.(event)
@@ -276,7 +279,7 @@ function SidebarTrigger({
       }}
       {...props}
     >
-      <PanelLeftIcon />
+      {expanded ? <XIcon /> : <MenuIcon />}
       <span className="sr-only">Toggle Sidebar</span>
     </Button>
   )
@@ -543,7 +546,7 @@ function SidebarMenuButton({
   }
 
   return (
-    <Tooltip>
+    <Tooltip disabled={state !== "collapsed" || isMobile}>
       {comp}
       <TooltipContent
         side="right"

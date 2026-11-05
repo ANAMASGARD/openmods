@@ -34,13 +34,13 @@ export function SidebarUserButton({ profile }: { profile: AccountProfile }) {
       <SidebarMenu>
         <SidebarMenuItem>
           <DropdownMenu>
-            <DropdownMenuTrigger render={<SidebarMenuButton size="lg" ref={triggerRef} />} aria-label={`Account menu for ${profile.name}`}>
+            <DropdownMenuTrigger render={<SidebarMenuButton size="lg" ref={triggerRef} tooltip={profile.name} className="rounded-xl group-data-[collapsible=icon]:size-10! group-data-[collapsible=icon]:justify-center" />} aria-label={`Account menu for ${profile.name}`}>
               <ProfileAvatar profile={profile} />
-              <span className="grid min-w-0 flex-1 gap-0.5 text-left">
+              <span className="grid min-w-0 flex-1 gap-0.5 text-left group-data-[collapsible=icon]:hidden">
                 <span className="truncate font-medium">{profile.name}</span>
                 {profile.email && <span className="truncate text-xs text-muted-foreground">{profile.email}</span>}
               </span>
-              <ChevronsUpDownIcon aria-hidden="true" />
+              <ChevronsUpDownIcon aria-hidden="true" className="group-data-[collapsible=icon]:hidden" />
             </DropdownMenuTrigger>
             <DropdownMenuContent side="top" align="start" sideOffset={8} className="dark dashboard-theme w-72 max-w-[calc(100vw-2rem)]">
               <DropdownMenuGroup>
