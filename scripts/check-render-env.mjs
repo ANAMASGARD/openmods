@@ -50,8 +50,8 @@ export function getRenderEnvErrors(env) {
       errors.push("DATABASE_URL: use a postgres:// or postgresql:// URL with a hostname and database name.");
     } else if (key === "AUTH0_SECRET" && !/^[a-f0-9]{64}$/i.test(value)) {
       errors.push("AUTH0_SECRET: use a stable 64-character hexadecimal secret (generate once with openssl rand -hex 32).");
-    } else if (key === "TRIGGER_SECRET_KEY" && !/^tr_prod_sk_\S+$/.test(value)) {
-      errors.push("TRIGGER_SECRET_KEY: use the Trigger.dev production secret key starting with tr_prod_sk_.");
+    } else if (key === "TRIGGER_SECRET_KEY" && !/^tr_prod_(?!sk_$)\S+$/.test(value)) {
+      errors.push("TRIGGER_SECRET_KEY: use a Trigger.dev production secret key starting with tr_prod_ (or tr_prod_sk_ for a named API key).");
     }
   }
   return errors;

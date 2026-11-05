@@ -17,6 +17,7 @@ const script = fileURLToPath(new URL("../scripts/check-render-env.mjs", import.m
 
 test("accepts the web environment without worker-only OpenAI settings", () => {
   assert.deepEqual(getRenderEnvErrors(validEnv), []);
+  assert.deepEqual(getRenderEnvErrors({ ...validEnv, TRIGGER_SECRET_KEY: "tr_prod_0123456789abcdef" }), []);
   assert.deepEqual(getRenderEnvErrors({ ...validEnv, APP_BASE_URL: `${validEnv.APP_BASE_URL}/` }), []);
   assert.deepEqual(getRenderEnvErrors({ ...validEnv, DATABASE_URL: "postgres://test:password@db.example.com/openmods" }), []);
 });
@@ -47,7 +48,7 @@ test("rejects malformed database URLs, cookie secrets, and nonproduction Trigger
   const invalid = {
     DATABASE_URL: ["not-a-url", "https://db.example.com/openmods", "postgresql:///openmods", "postgresql://db.example.com", "postgresql://db.example.com/", "postgresql://db.example.com/openmods#fragment"],
     AUTH0_SECRET: ["too-short", "g".repeat(64), "a".repeat(63)],
-    TRIGGER_SECRET_KEY: ["tr_dev_test", "tr_stg_sk_test", "tr_prod_sk_", "tr_prod_sk_has space"],
+    TRIGGER_SECRET_KEY: ["tr_dev_test", "tr_stg_sk_test", "tr_prod_", "tr_prod_sk_", "tr_prod_sk_has space"],
   };
   for (const [key, values] of Object.entries(invalid)) {
     for (const value of values) {
