@@ -1,10 +1,30 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { AVATAR_SEED_LENGTH, BOT_LIMITS, parseBotInput } from "../lib/bot-input";
+import { AVATAR_SEED_LENGTH, BOT_LIMITS, parseBotInput, parseBotUpdateInput } from "../lib/bot-input";
 import { botFormSchema } from "../lib/bot-form-schema";
 import { botCreateSchema, botInsertSchema } from "../lib/db/bot-validation";
 
 const avatar = "aB0_-".repeat(4) + "Z";
+
+test("updates allow only editable fields and preserve server-managed identity", () => {
+  const result = parseBotUpdateInput(form({ name: " Atlas ", job: " Developer ", userId: "other", id: "other", avatar: "replacement", sandboxId: "other" }));
+  assert.equal(result.valid, true);
+  if (result.valid) assert.deepEqual(result.values, { name: "Atlas", job: "Developer", instructions: "" });
+});
+
+test("updates reject duplicate, file, blank and overlong editable fields", () => {
+  for (const field of Object.keys(BOT_LIMITS)) {
+    const duplicate = form({ name: "Atlas", job: "Developer", instructions: "Original" });
+    duplicate.append(field, "duplicate");
+    assert.equal(parseBotUpdateInput(duplicate).valid, false);
+    const file = form({ name: "Atlas", job: "Developer" });
+    file.set(field, new File(["data"], "value.txt"));
+    assert.equal(parseBotUpdateInput(file).valid, false);
+    assert.equal(parseBotUpdateInput(form({ name: "Atlas", job: "Developer", [field]: "x".repeat(BOT_LIMITS[field as keyof typeof BOT_LIMITS] + 1) })).valid, false);
+  }
+  assert.equal(parseBotUpdateInput(form({ name: " ", job: "Developer" })).valid, false);
+  assert.equal(parseBotUpdateInput(form({ name: "Atlas", job: " " })).valid, false);
+});
 
 function form(values: Record<string, string>) {
   const data = new FormData();

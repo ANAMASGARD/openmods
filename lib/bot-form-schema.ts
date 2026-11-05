@@ -20,5 +20,6 @@ export const avatarSeedSchema = z.string({ error: AVATAR_INPUT_ERROR })
   .regex(/^[A-Za-z0-9_-]+$/, AVATAR_INPUT_ERROR);
 
 export type BotFormValues = z.infer<typeof botFormSchema>;
+export type EditableBot = BotFormValues & { id: string; avatar: string };
 export type BotField = keyof BotFormValues;
 export type BotInputErrors = Partial<Record<BotField | "avatar", string>>;

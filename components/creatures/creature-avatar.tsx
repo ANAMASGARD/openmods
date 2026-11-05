@@ -12,6 +12,8 @@ const CreatureScene = dynamic(() => import("./creature-scene"), { ssr: false });
 export type CreatureAvatarProps = {
   seed: string;
   animated?: boolean;
+  /** Disable the greeting button when the avatar is inside another control. */
+  interactive?: boolean;
   className?: string;
   alt?: string;
   paused?: boolean;
@@ -45,12 +47,14 @@ class SceneBoundary extends Component<
 
 function AnimatedCreature({
   creature,
+  interactive = true,
   className,
   alt,
   paused = false,
   portraitCapture = false,
 }: {
   creature: Creature;
+  interactive?: boolean;
   className?: string;
   alt: string;
   paused?: boolean;
@@ -97,6 +101,8 @@ function AnimatedCreature({
       data-creature-variant={creature.variant}
       data-renderer-status={status}
       data-creature-state={portraitCapture ? "still" : !active ? "paused" : greeting ? "greeting" : "idle"}
+      role={!interactive ? "img" : undefined}
+      aria-label={!interactive ? alt : undefined}
     >
       {!portraitCapture && (
         <Image
@@ -127,7 +133,7 @@ function AnimatedCreature({
           </SceneBoundary>
         </span>
       )}
-      {!portraitCapture && (
+      {!portraitCapture && interactive && (
         <button
           type="button"
           aria-label={`${alt}. Say hello`}
@@ -156,6 +162,7 @@ function AnimatedCreature({
 export function CreatureAvatar({
   seed,
   animated = false,
+  interactive = true,
   className,
   alt = "Bot avatar",
   paused = false,
@@ -185,6 +192,7 @@ export function CreatureAvatar({
     <AnimatedCreature
       key={`${creature.id}:${creature.variant}:${portraitCapture}`}
       creature={creature}
+      interactive={interactive}
       className={className}
       alt={alt}
       paused={paused}

@@ -1,11 +1,14 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import { neon } from "@neondatabase/serverless";
 import { chromium } from "playwright";
 import { decrypt } from "../node_modules/@auth0/nextjs-auth0/dist/server/cookies.js";
 import { createPreviewContext } from "./creature-preview-session.mjs";
 
 const baseUrl = process.argv[2] ?? "http://localhost:3000";
+const devLogPath = new URL("../.next/dev/logs/next-development.log", import.meta.url);
+const devLogBefore = await readFile(devLogPath, "utf8").catch(() => "");
 const browser = await chromium.launch();
 const contexts = [];
 const owners = [];
@@ -94,13 +97,27 @@ try {
   await page.keyboard.press("ArrowDown");
   await page.keyboard.press("Enter");
   await page.waitForURL((url) => url.pathname === `/chats/${directChat}`);
-  await page.getByRole("heading", { name: "404", exact: true }).waitFor();
+  await page.getByRole("heading", { name: longName, exact: true }).waitFor();
   await page.goto(new URL("/dashboard", baseUrl).href);
   const directLink = sidebar.locator(`[data-chat-id="${directChat}"]`).getByRole("link");
   assert.equal(await directLink.getAttribute("href"), `/chats/${directChat}`);
   await directLink.click();
   await page.waitForURL((url) => url.pathname === `/chats/${directChat}`);
-  await page.getByRole("heading", { name: "404", exact: true }).waitFor();
+  await page.getByRole("heading", { name: longName, exact: true }).waitFor();
+  assert.equal(await directLink.getAttribute("aria-current"), "page");
+  assert.notEqual(await directLink.getAttribute("data-active"), null);
+  assert.equal(await sidebar.locator('[aria-current="page"]').count(), 1);
+  assert.equal(await page.locator("main:visible header img").getAttribute("src"), await sidebar.locator(`[data-chat-id="${directChat}"] img`).getAttribute("src"));
+  const desktopButton = page.getByRole("button", { name: "Desktop workspace (coming soon)", exact: true });
+  assert.equal(await desktopButton.isDisabled(), true, "desktop workspace is not implemented yet");
+  await page.screenshot({ path: "/tmp/openmods-chat-header-desktop.png", animations: "disabled" });
+  await sidebar.locator(`[data-chat-id="${groupChat}"]`).getByRole("link").click();
+  await page.getByRole("heading", { name: "Release team", exact: true }).waitFor();
+  assert.equal(await directLink.getAttribute("aria-current"), null);
+  assert.equal(await sidebar.locator(`[data-chat-id="${groupChat}"] a`).getAttribute("aria-current"), "page");
+  await page.goBack();
+  await page.getByRole("heading", { name: longName, exact: true }).waitFor();
+  assert.equal(await directLink.getAttribute("aria-current"), "page");
   await page.goto(new URL("/dashboard", baseUrl).href);
   await directLink.waitFor();
   await page.screenshot({ path: "/tmp/openmods-sidebar-chats-desktop.png", animations: "disabled" });
@@ -116,12 +133,14 @@ try {
     await page.screenshot({ path: `/tmp/openmods-chat-search-${width}.png`, animations: "disabled" });
     await searchDialog.getByRole("option", { name: /Release team/ }).click();
     await page.waitForURL((url) => url.pathname === `/chats/${groupChat}`);
-    await page.getByRole("heading", { name: "404", exact: true }).waitFor();
+    await page.getByRole("heading", { name: "Release team", exact: true }).waitFor();
     await page.goto(new URL("/dashboard", baseUrl).href);
     await page.getByRole("button", { name: "Toggle Sidebar", exact: true }).click();
     await directLink.click();
     await page.waitForURL((url) => url.pathname === `/chats/${directChat}`);
-    await page.getByRole("heading", { name: "404", exact: true }).waitFor();
+    await page.getByRole("heading", { name: longName, exact: true }).waitFor();
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), "chat header fits narrow screens");
+    await page.screenshot({ path: `/tmp/openmods-chat-header-${width}.png`, animations: "disabled" });
     await page.goto(new URL("/dashboard", baseUrl).href);
     await page.getByRole("button", { name: "Toggle Sidebar", exact: true }).click();
     await searchButton.waitFor();
@@ -132,6 +151,18 @@ try {
     await page.keyboard.press("Escape");
     await searchDialog.waitFor({ state: "hidden" });
   }
+  for (const inaccessibleId of [foreignChat, randomUUID()]) {
+    await page.goto(new URL(`/chats/${inaccessibleId}`, baseUrl).href);
+    await page.getByRole("heading", { name: "404", exact: true }).waitFor();
+    assert.ok(!(await page.content()).includes("PRIVATE OTHER"));
+  }
+  await page.goto(new URL(`/chats/${emptyChat}`, baseUrl).href);
+  await page.getByRole("heading", { name: "New chat", exact: true }).waitFor();
+  const anonymous = await browser.newContext();
+  contexts.push(anonymous);
+  const anonymousPage = await anonymous.newPage();
+  await anonymousPage.goto(new URL(`/chats/${directChat}`, baseUrl).href);
+  await anonymousPage.waitForURL((url) => url.pathname === "/sign-in");
   const otherPage = await contexts[1].newPage();
   await otherPage.goto(new URL("/dashboard", baseUrl).href);
   const otherSidebar = otherPage.locator('[aria-label="Your chats"]');
@@ -144,7 +175,10 @@ try {
   await otherPage.getByRole("button", { name: "Search chats", exact: true }).click();
   await otherPage.getByRole("dialog", { name: "Search chats", exact: true }).getByText("No chats yet. Create a bot to get started.").waitFor();
   assert.deepEqual(errors, []);
-  console.log("Sidebar chats passed: Auth0 isolation, ordering, portraits, search, keyboard and click navigation to unimplemented chat routes, desktop/mobile fit, and no runtime errors.");
+  const devLogAfter = await readFile(devLogPath, "utf8").catch(() => "");
+  const newDevLog = devLogAfter.startsWith(devLogBefore) ? devLogAfter.slice(devLogBefore.length) : devLogAfter;
+  assert.ok(!newDevLog.includes("unstable value `new Date()`"), "sidebar must not read the current time during prerendering");
+  console.log("Sidebar chats passed: Auth0 isolation, ordering, portraits, search, keyboard and click navigation to owned chat headers, active state, missing/foreign chat rejection, anonymous redirect, desktop/mobile fit, and no runtime errors.");
 } finally {
   if (sql) for (const owner of owners) {
     await sql`DELETE FROM chats WHERE user_id = ${owner}`;

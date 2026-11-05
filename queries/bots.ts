@@ -6,6 +6,26 @@ import { bots, chatMembers, chats } from "@/lib/db/schema";
 
 /** The owner always comes from the server session, never caller input. */
 export async function getUserChats() {
+  return getOwnedChats();
+}
+
+export async function getUserChat(chatId: string) {
+  const session = await auth0.getSession();
+  if (!session?.user.sub) return null;
+  const ownedChats = await getOwnedChats(chatId);
+  const chat = ownedChats[0];
+  if (!chat) return null;
+  const [bot] = await getDb().select({
+    id: bots.id, name: bots.name, avatar: bots.avatar, job: bots.job, instructions: bots.instructions,
+  }).from(chatMembers)
+    .innerJoin(chats, and(eq(chats.id, chatMembers.chatId), eq(chats.userId, session.user.sub)))
+    .innerJoin(bots, and(eq(bots.id, chatMembers.botId), eq(bots.userId, session.user.sub)))
+    .where(eq(chatMembers.chatId, chatId))
+    .orderBy(asc(chatMembers.joinedAt), asc(chatMembers.botId)).limit(1);
+  return { ...chat, bot: bot ? { ...bot, instructions: bot.instructions ?? "" } : null };
+}
+
+async function getOwnedChats(chatId?: string) {
   const session = await auth0.getSession();
   if (!session?.user.sub) return [];
   const owner = session.user.sub;
@@ -21,7 +41,7 @@ export async function getUserChats() {
     .leftJoin(chatMembers, eq(chatMembers.chatId, chats.id))
     // Guard member data too, even if an invalid cross-owner membership exists.
     .leftJoin(bots, and(eq(bots.id, chatMembers.botId), eq(bots.userId, owner)))
-    .where(eq(chats.userId, owner))
+    .where(and(eq(chats.userId, owner), chatId === undefined ? undefined : eq(chats.id, chatId)))
     .orderBy(desc(chats.lastMessageAt), desc(chats.id), asc(chatMembers.joinedAt), asc(chatMembers.botId));
 
   const unique = new Map<string, {

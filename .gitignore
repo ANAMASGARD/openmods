@@ -54,3 +54,6 @@ __pycache__/
 # Local Neon CLI context
 .neon
 .neon/
+
+# Trigger.dev local worker artifacts
+.trigger

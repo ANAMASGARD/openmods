@@ -1,4 +1,5 @@
 import { Suspense } from "react";
+import { connection } from "next/server";
 import { formatDistanceStrict } from "date-fns";
 import { getUserChats } from "@/queries/bots";
 import { SidebarWorkspace } from "@/components/sidebar-workspace";
@@ -7,6 +8,9 @@ import { SidebarUserButton } from "@/components/sidebar-user-button";
 import { Skeleton } from "@/components/ui/skeleton";
 
 async function SidebarData() {
+  // Keep session lookup and the relative-time clock outside prerendering,
+  // including when the query below falls back to its error state.
+  await connection();
   let chats: Awaited<ReturnType<typeof getUserChats>> = [];
   let error;
   try {

@@ -14,3 +14,5 @@ export const botInsertSchema = createInsertSchema(bots, {
 export const botCreateSchema = botInsertSchema
   .pick({ name: true, job: true, instructions: true, avatar: true })
   .extend({ instructions: botFormSchema.shape.instructions, avatar: avatarSeedSchema });
+
+export const botUpdateSchema = botCreateSchema.omit({ avatar: true });

@@ -45,9 +45,9 @@ function CommandDialog({
   title?: string
   description?: string
   className?: string
+  contentProps?: Omit<React.ComponentProps<typeof DialogContent>, "children" | "className">
   showCloseButton?: boolean
   children: React.ReactNode
-  contentProps?: Omit<React.ComponentProps<typeof DialogContent>, "children">
 }) {
   return (
     <Dialog {...props}>
@@ -59,10 +59,7 @@ function CommandDialog({
         )}
         showCloseButton={showCloseButton}
       >
-        <DialogHeader className="sr-only">
-          <DialogTitle>{title}</DialogTitle>
-          <DialogDescription>{description}</DialogDescription>
-        </DialogHeader>
+        <DialogHeader className="sr-only"><DialogTitle>{title}</DialogTitle><DialogDescription>{description}</DialogDescription></DialogHeader>
         {children}
       </DialogContent>
     </Dialog>

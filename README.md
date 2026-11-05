@@ -77,3 +77,57 @@ the authentication provider; external user and sandbox IDs have no local foreign
 Drizzle generates Nano IDs for `id` and `avatar` when omitted during inserts.
 These are application defaults, so raw SQL inserts must supply both values.
 Postgres supplies `created_at` with `now()` when omitted.
+
+## AI chat
+
+Chat pages use AI SDK 7 and AI Elements with a text-only OpenAI streaming route.
+Add these server-only settings to `.env.local` and restart the dev server:
+
+```dotenv
+OPENAI_API_KEY=your-openai-api-key
+# Optional; defaults to gpt-6.1-sol.
+OPENAI_CHAT_MODEL=gpt-6.1-sol
+```
+
+The route authenticates with Auth0, checks chat ownership, and loads the bot's
+saved job and instructions on the server. Conversation messages stay in browser
+memory: they are not written to the database and are lost on reload. No tools,
+file uploads, microphone capture, or external integrations are enabled.
+
+The composer supports Enter to send, Shift+Enter for a new line, response styles,
+starter prompts, stopping generation, and retrying failed replies. API keys are
+never sent to the browser. `npm run test:chat:browser` uses synthetic local Auth0
+sessions and a mock SSE response; it does not make a paid OpenAI request.
+
+## Background tasks with Trigger.dev
+
+The project is linked to `proj_yyokorioekbldyziwkwb`. Tasks live in `src/trigger/`
+and use `@trigger.dev/sdk`. `trigger.config.ts` selects Node.js 24 and caps task
+runs at 60 seconds. The SDK, build package, and development CLI use version 4.8.1.
+
+Sign in once with `npx trigger.dev@latest login`. Put the project's **development**
+secret key in the Git-ignored `.env` file:
+
+```dotenv
+TRIGGER_SECRET_KEY=your-development-secret-key
+```
+
+Run the background worker in a separate terminal alongside `npm run dev`:
+
+```bash
+npm run dev:trigger
+```
+
+Once the worker is ready, select `openmods-healthcheck` in the Trigger.dev dashboard's
+Development environment and run it with an empty payload (`{}`). The task logs
+worker readiness and returns `{ "status": "ok", "message": "Trigger.dev is running in OpenMods." }`.
+It does not access the database or call external APIs. You can also run it from a
+second terminal and wait for the result:
+
+```bash
+npx trigger.dev@4.8.1 tasks trigger openmods-healthcheck --env dev --wait --timeout 60
+```
+
+Keep the development worker running to execute development tasks. Export every
+task, use built-in `fetch`, and call `wait.*`, `triggerAndWait`, and
+`batchTriggerAndWait` sequentially rather than putting them in `Promise.all`.

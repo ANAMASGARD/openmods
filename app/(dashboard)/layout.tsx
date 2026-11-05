@@ -21,10 +21,8 @@ async function DashboardShell({ children }: { children: React.ReactNode }) {
       <CreatureMotionProvider>
         <SidebarProvider defaultOpen={defaultOpen} className="dark dashboard-theme bg-background text-foreground" style={{ "--sidebar-width": "17rem", "--sidebar-width-icon": "4rem" } as React.CSSProperties}>
           <AppSidebar defaultOpen={defaultOpen} />
-          <div className="flex min-w-0 flex-1 flex-col">
-            <header className="flex h-12 shrink-0 items-center px-4">
-              <SidebarTrigger className="md:hidden" />
-            </header>
+          <div className="relative flex min-w-0 flex-1 flex-col">
+            <SidebarTrigger className="absolute top-4 left-4 z-10 md:hidden" />
             {children}
           </div>
         </SidebarProvider>

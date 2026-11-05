@@ -1,0 +1,321 @@
+import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
+import { createServer } from "node:http";
+import { neon } from "@neondatabase/serverless";
+import { chromium } from "playwright";
+import { decrypt } from "../node_modules/@auth0/nextjs-auth0/dist/server/cookies.js";
+import { createPreviewContext } from "./creature-preview-session.mjs";
+
+const baseUrl = process.argv[2] ?? "http://localhost:3000";
+const browser = await chromium.launch();
+const contexts = [], owners = [];
+const botId = randomUUID(), chatId = randomUUID();
+let sql, mode = "reply", requests = [];
+const timers = new Set();
+
+async function waitForComposerLayout(page) {
+  await page.waitForFunction(() => {
+    const composer = [...document.querySelectorAll("[data-chat-composer-motion]")].find((element) => element.getClientRects().length);
+    return composer && ["none", "matrix(1, 0, 0, 1, 0, 0)"].includes(getComputedStyle(composer).transform);
+  });
+}
+
+async function checkWelcome(page, { compact = true, centered = true } = {}) {
+  const region = page.getByRole("region", { name: "Conversation with Atlas" });
+  assert.equal(await region.getAttribute("data-chat-state"), "welcome");
+  const heading = await page.getByRole("heading", { name: "What are we working on?" }).boundingBox();
+  const group = await region.locator("[data-chat-composer-container]").boundingBox();
+  const pill = await region.locator("[data-slot=input-group]").boundingBox();
+  const suggestions = await page.getByRole("button", { name: "Review some code", exact: true }).boundingBox();
+  const bounds = await region.boundingBox();
+  assert.ok(heading.y + heading.height < pill.y, "heading is above the composer");
+  assert.ok(suggestions.y > pill.y + pill.height, "suggestions are below the composer");
+  assert.ok(pill.width <= 768, "composer is no wider than 768px");
+  assert.ok(Math.abs(pill.x + pill.width / 2 - bounds.x - bounds.width / 2) < 1, "composer is horizontally centered in the chat pane");
+  if (centered) assert.ok(Math.abs(group.y + group.height / 2 - bounds.y - bounds.height / 2) < 1, "welcome group is vertically centered");
+  if (compact) {
+    assert.ok(Math.abs(pill.height - 56) <= 1, `single-line composer is 56px high (actual ${pill.height})`);
+    for (const control of [page.getByRole("button", { name: "Starter prompts", exact: true }), page.getByRole("textbox", { name: "Message Atlas", exact: true }), page.getByRole("button", { name: "Send message", exact: true })]) {
+      const box = await control.boundingBox();
+      assert.ok(Math.abs(box.y + box.height / 2 - pill.y - pill.height / 2) < 1, "controls share a vertical center");
+    }
+  }
+}
+
+async function checkDocked(page) {
+  await waitForComposerLayout(page);
+  const region = page.getByRole("region", { name: "Conversation with Atlas" });
+  assert.equal(await region.getAttribute("data-chat-state"), "active");
+  assert.equal(await page.getByRole("heading", { name: "What are we working on?" }).count(), 0);
+  const dock = await region.locator("[data-chat-composer-container]").boundingBox();
+  const bounds = await region.boundingBox();
+  const transcript = await page.getByRole("log", { name: "Chat messages" }).boundingBox();
+  assert.ok(Math.abs(dock.y + dock.height - bounds.y - bounds.height) < 1, "composer stays docked at the bottom");
+  assert.ok(transcript.y + transcript.height <= dock.y + 1, "transcript does not overlap the composer");
+}
+
+const mockServer = createServer((req, res) => {
+  let body = "";
+  req.on("data", (chunk) => { body += chunk; });
+  req.on("end", () => {
+    if (req.method === "OPTIONS") { res.writeHead(204, { "Access-Control-Allow-Origin": new URL(baseUrl).origin, "Access-Control-Allow-Headers": "content-type", "Access-Control-Allow-Methods": "POST", "Access-Control-Allow-Credentials": "true" }); res.end(); return; }
+    requests.push(JSON.parse(body));
+    const cors = { "Access-Control-Allow-Origin": new URL(baseUrl).origin, "Access-Control-Allow-Credentials": "true" };
+    if (mode === "fail") { res.writeHead(503, cors); res.end("Test provider unavailable"); return; }
+    res.writeHead(200, { ...cors, "Content-Type": "text/event-stream", "Cache-Control": "no-cache", "x-vercel-ai-ui-message-stream": "v1" });
+    const send = (chunk) => res.write(`data: ${JSON.stringify(chunk)}\n\n`);
+    send({ type: "start", messageId: randomUUID() });
+    send({ type: "start-step" }); send({ type: "text-start", id: "text" });
+    send({ type: "text-delta", id: "text", delta: "Here’s a practical plan" });
+    const timer = setTimeout(() => {
+      timers.delete(timer);
+      send({ type: "text-delta", id: "text", delta: mode === "long" ? "\n\nA detailed explanation with enough content to scroll.\n\n".repeat(45) : ":\n\n1. Reproduce the issue.\n2. Add a regression test.\n3. Ship the smallest fix." });
+      send({ type: "text-end", id: "text" }); send({ type: "finish-step" }); send({ type: "finish", finishReason: "stop" }); res.end("data: [DONE]\n\n");
+    }, mode === "slow" ? 15000 : 1200);
+    timers.add(timer);
+    res.on("close", () => { clearTimeout(timer); timers.delete(timer); });
+  });
+});
+await new Promise((resolve) => mockServer.listen(0, "127.0.0.1", resolve));
+const mockUrl = `http://127.0.0.1:${mockServer.address().port}`;
+try {
+  for (let i = 0; i < 2; i++) {
+    const context = await createPreviewContext(browser, baseUrl, { viewport: { width: 1440, height: 900 }, reducedMotion: "reduce" }); contexts.push(context);
+    owners.push((await decrypt((await context.cookies()).find((cookie) => cookie.name === "__session").value, process.env.AUTH0_SECRET)).payload.user.sub);
+  }
+  sql = neon(process.env.DATABASE_URL);
+  await sql`INSERT INTO bots (id,user_id,name,avatar,job) VALUES (${botId},${owners[0]},'Atlas','chatComposerSeed123456','Developer')`;
+  await sql`INSERT INTO chats (id,user_id,kind) VALUES (${chatId},${owners[0]},'direct')`;
+  await sql`INSERT INTO chat_members (chat_id,bot_id) VALUES (${chatId},${botId})`;
+  const payload = { chatId, messages: [{ id: "first", role: "user", parts: [{ type: "text", text: "Hello" }] }] };
+  const api = new URL("/api/chat", baseUrl).href;
+  const anonymous = await browser.newContext(); contexts.push(anonymous);
+  assert.equal((await anonymous.request.post(api, { data: payload })).status(), 401);
+  assert.equal((await contexts[1].request.post(api, { data: payload })).status(), 404);
+  assert.equal((await contexts[0].request.post(api, { data: { ...payload, messages: [{ ...payload.messages[0], role: "system" }] } })).status(), 400);
+  assert.equal((await contexts[0].request.post(api, { data: { ...payload, chatId: "missing" } })).status(), 404);
+  if (!process.env.OPENAI_API_KEY) assert.equal((await contexts[0].request.post(api, { data: payload })).status(), 503);
+  const page = await contexts[0].newPage();
+  await page.addInitScript(() => {
+    window.speechSessions = [];
+    class MockSpeechRecognition {
+      constructor() { window.speechSessions.push(this); }
+      start() {
+        if (window.failSpeechStart) throw new Error("Simulated microphone startup failure");
+        queueMicrotask(() => this.onstart?.());
+      }
+      stop() {
+        this.stopped = true;
+        queueMicrotask(() => {
+          if (this.finalWords) this.onresult?.({ resultIndex: 0, results: [{ isFinal: true, 0: { transcript: this.finalWords } }] });
+          this.onend?.();
+        });
+      }
+      abort() { this.aborted = true; }
+    }
+    window.SpeechRecognition = window.MockSpeechRecognition = MockSpeechRecognition;
+    window.webkitSpeechRecognition = undefined;
+  });
+  const errors = []; page.on("pageerror", (error) => errors.push(error.message));
+  await page.route(api, (route) => route.continue({ url: mockUrl }));
+  const chatUrl = new URL(`/chats/${chatId}`, baseUrl).href;
+  await page.goto(chatUrl);
+  const input = page.getByRole("textbox", { name: "Message Atlas", exact: true });
+  await input.waitFor();
+  await page.evaluate(() => document.fonts.ready);
+  await checkWelcome(page);
+  assert.ok(await page.getByRole("button", { name: "Send message", exact: true }).isDisabled());
+  assert.equal(await page.getByRole("region", { name: "Conversation with Atlas" }).locator("[data-slot=input-group]").evaluate((element) => getComputedStyle(element).opacity), "1", "empty composer remains fully visible");
+  await page.screenshot({ path: "/tmp/openmods-composer-desktop.png", animations: "disabled" });
+  await page.getByRole("button", { name: "Toggle Sidebar", exact: true }).first().click();
+  await page.waitForFunction(() => document.querySelector('[data-slot="sidebar"]')?.getAttribute("data-state") === "collapsed");
+  // Wait for the sidebar's width transition before checking centering.
+  await page.locator('[data-slot="sidebar-gap"]').evaluate(async (element) => { await Promise.all(element.getAnimations().map((animation) => animation.finished)); });
+  await checkWelcome(page);
+  await page.screenshot({ path: "/tmp/openmods-composer-desktop-collapsed.png", animations: "disabled" });
+  assert.equal(await page.evaluate(() => window.speechSessions.length), 0, "microphone never starts automatically");
+  await input.fill("Please review");
+  await page.getByRole("button", { name: "Dictate message", exact: true }).click();
+  await page.getByText("Listening… Tap the microphone to finish.", { exact: true }).waitFor();
+  const speechResults = [{ isFinal: true, 0: { transcript: "this patch" } }, { isFinal: false, 0: { transcript: "unfinished" } }];
+  await page.evaluate((results) => {
+    window.speechSessions.at(-1).onresult({ resultIndex: 0, results });
+    window.speechSessions.at(-1).onresult({ resultIndex: 0, results });
+  }, speechResults);
+  assert.equal(await input.inputValue(), "Please review this patch", "dictation appends once and ignores interim results");
+  await input.fill("Please review this patch carefully");
+  await page.evaluate(() => window.speechSessions.at(-1).onresult({ resultIndex: 1, results: [{ isFinal: true, 0: { transcript: "this patch" } }, { isFinal: true, 0: { transcript: "and explain." } }] }));
+  assert.equal(await input.inputValue(), "Please review this patch carefully and explain.", "dictation preserves edits made while listening");
+  assert.equal(requests.length, 0, "dictation does not submit the draft");
+  await page.getByRole("button", { name: "Stop dictation", exact: true }).click();
+  await page.getByRole("button", { name: "Dictate message", exact: true }).waitFor();
+  assert.ok(await page.evaluate(() => window.speechSessions.at(-1).stopped), "mic stops the recognition session");
+  await input.fill("");
+  await page.getByRole("button", { name: "Dictate message", exact: true }).click();
+  await page.getByText("Listening… Tap the microphone to finish.", { exact: true }).waitFor();
+  await page.evaluate(() => { window.speechSessions.at(-1).finalWords = "Final words before stopping"; });
+  await page.getByRole("button", { name: "Stop dictation", exact: true }).click();
+  await page.getByRole("button", { name: "Dictate message", exact: true }).waitFor();
+  assert.equal(await input.inputValue(), "Final words before stopping", "normal stop includes final captured words");
+  for (const [code, message] of [["not-allowed", "Microphone access was denied."], ["network", "Voice input couldn’t connect."]]) {
+    await page.getByRole("button", { name: "Dictate message", exact: true }).click();
+    await page.getByText("Listening… Tap the microphone to finish.", { exact: true }).waitFor();
+    await page.evaluate((error) => window.speechSessions.at(-1).onerror({ error }), code);
+    await page.getByRole("alert").filter({ hasText: message }).waitFor();
+    assert.equal(await input.inputValue(), "Final words before stopping", "microphone errors preserve the draft");
+    assert.ok(await page.evaluate(() => window.speechSessions.at(-1).aborted), "failed recording is released");
+  }
+  await page.evaluate(() => { window.SpeechRecognition = undefined; });
+  await page.getByRole("button", { name: "Dictate message", exact: true }).click();
+  await page.getByRole("alert").filter({ hasText: "Voice input isn’t supported" }).waitFor();
+  await page.evaluate(() => { window.SpeechRecognition = window.MockSpeechRecognition; window.failSpeechStart = true; });
+  await page.getByRole("button", { name: "Dictate message", exact: true }).click();
+  await page.getByRole("alert").filter({ hasText: "Voice input couldn’t start" }).waitFor();
+  await page.evaluate(() => { window.failSpeechStart = false; });
+  await page.getByRole("button", { name: "Dictate message", exact: true }).click();
+  await page.getByText("Listening… Tap the microphone to finish.", { exact: true }).waitFor();
+  await input.fill("x".repeat(11999));
+  await page.evaluate(() => window.speechSessions.at(-1).onresult({ resultIndex: 0, results: [{ isFinal: true, 0: { transcript: "Additional words" } }] }));
+  assert.equal((await input.inputValue()).length, 12000, "dictation respects the message limit");
+  await page.getByRole("button", { name: "Plan a task", exact: true }).click();
+  assert.ok(await page.evaluate(() => window.speechSessions.at(-1).aborted), "choosing a starter ends recording");
+  assert.match(await input.inputValue(), /implementation plan/);
+  await page.waitForFunction(() => document.activeElement?.getAttribute("aria-label") === "Message Atlas");
+  assert.ok(await input.evaluate((element) => element === document.activeElement), "starter focuses the input");
+  await checkWelcome(page, { compact: false });
+  assert.equal(requests.length, 0, "starter selection does not send a message");
+  await page.getByRole("button", { name: "Starter prompts", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Review some code" }).click();
+  await page.getByRole("menu").waitFor({ state: "hidden" });
+  assert.match(await input.inputValue(), /Review this code/);
+  assert.ok(await input.evaluate((element) => element === document.activeElement), "menu returns focus to the input");
+  await input.fill("Plan the fix");
+  await input.press("Shift+Enter"); await input.press("a");
+  assert.match(await input.inputValue(), /\n/); assert.equal(requests.length, 0);
+  await page.getByRole("button", { name: "Reply style", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Concise", exact: true }).click();
+  await page.getByRole("button", { name: "Dictate message", exact: true }).click();
+  await page.getByText("Listening… Tap the microphone to finish.", { exact: true }).waitFor();
+  await page.evaluate(() => { window.lateSpeechResult = window.speechSessions.at(-1).onresult; });
+  const originalInput = await input.elementHandle();
+  await input.press("Enter");
+  await page.getByRole("button", { name: "Stop response", exact: true }).waitFor();
+  assert.ok(await page.getByRole("button", { name: "Dictate message", exact: true }).isDisabled(), "mic is disabled while sending");
+  assert.ok(await page.evaluate(() => window.speechSessions.at(-1).aborted), "sending ends microphone capture");
+  await page.evaluate(() => window.lateSpeechResult({ resultIndex: 0, results: [{ isFinal: true, 0: { transcript: "late words" } }] }));
+  assert.equal(await input.inputValue(), "", "late speech events cannot change a new draft after sending");
+  await checkDocked(page);
+  assert.ok(await originalInput.evaluate((element) => element.isConnected && element === document.activeElement), "docking preserves the original input and keyboard focus");
+  assert.equal(await page.getByRole("region", { name: "Conversation with Atlas" }).locator("[data-chat-composer-motion]").evaluate((element) => getComputedStyle(element).transform), "none", "reduced motion skips the docking transform");
+  await page.getByText("Here’s a practical plan", { exact: false }).waitFor();
+  await page.getByRole("button", { name: "Send message", exact: true }).waitFor();
+  await checkDocked(page);
+  assert.equal(requests[0].chatId, chatId); assert.equal(requests[0].style, "concise");
+  assert.equal(await page.locator("ol").evaluate((element) => getComputedStyle(element).listStyleType), "decimal", "markdown lists retain numbering");
+  await page.screenshot({ path: "/tmp/openmods-composer-reply.png", animations: "disabled" });
+  mode = "slow"; await input.fill("A second question"); await input.press("Enter");
+  await page.getByRole("button", { name: "Stop response", exact: true }).click();
+  await page.getByRole("button", { name: "Send message", exact: true }).waitFor();
+  await checkDocked(page);
+  mode = "fail"; await input.fill("Keep this question for retry"); await input.press("Enter");
+  const chatAlert = page.getByRole("region", { name: "Conversation with Atlas" }).getByRole("alert");
+  await chatAlert.waitFor();
+  await checkDocked(page);
+  await page.getByText("Keep this question for retry", { exact: true }).waitFor();
+  mode = "reply"; await page.getByRole("button", { name: "Retry", exact: true }).click();
+  await page.getByRole("button", { name: "Stop response", exact: true }).waitFor();
+  await page.getByRole("button", { name: "Send message", exact: true }).waitFor();
+  assert.equal(await page.getByText("Keep this question for retry", { exact: true }).count(), 1);
+  assert.equal(await chatAlert.count(), 0);
+  await checkDocked(page);
+  mode = "long"; await input.fill("Explain in detail"); await input.press("Enter");
+  await page.getByRole("button", { name: "Stop response", exact: true }).waitFor();
+  await page.getByRole("button", { name: "Send message", exact: true }).waitFor();
+  await checkDocked(page);
+  const scroller = page.getByRole("log", { name: "Chat messages" }).locator(":scope > div").first();
+  await scroller.evaluate((element) => { element.scrollTop = 0; });
+  await page.getByRole("button", { name: "Jump to latest message", exact: true }).click();
+  await page.waitForFunction(() => {
+    const element = document.querySelector('[role="log"] > div');
+    return element && element.scrollHeight - element.scrollTop - element.clientHeight < 2;
+  });
+  await checkDocked(page);
+  await page.reload(); await input.waitFor();
+  await checkWelcome(page);
+  assert.equal(await page.getByText("Keep this question for retry", { exact: true }).count(), 0);
+  for (const [width, height] of [[390, 844], [320, 568], [390, 400]]) {
+    await page.setViewportSize({ width, height });
+    await checkWelcome(page);
+    await page.screenshot({ path: `/tmp/openmods-composer-empty-${width}-${height}.png`, animations: "disabled" });
+    await input.fill("A longer message\n".repeat(15));
+    const field = await input.boundingBox();
+    assert.ok(field.height <= 160, "long input is capped at 160px");
+    assert.ok(await input.evaluate((element) => element.scrollHeight > element.clientHeight), "long input can scroll internally");
+    const send = page.getByRole("button", { name: "Send message", exact: true });
+    await send.scrollIntoViewIfNeeded();
+    const bounds = await send.boundingBox(); assert.ok(bounds.y + bounds.height <= height, "send stays in the viewport");
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), "no horizontal overflow");
+    await page.screenshot({ path: `/tmp/openmods-composer-${width}-${height}.png`, animations: "disabled" });
+    await page.getByRole("button", { name: "Starter prompts", exact: true }).click();
+    const menu = await page.getByRole("menu").boundingBox();
+    assert.ok(menu.x >= 0 && menu.y >= 0 && menu.x + menu.width <= width && menu.y + menu.height <= height, "mobile menu stays within the viewport");
+    await page.getByRole("menu").press("Escape");
+    await page.getByRole("menu").waitFor({ state: "hidden" });
+    assert.ok(await input.evaluate((element) => element === document.activeElement), "Escape returns focus to the input");
+    mode = "reply"; await input.fill("A mobile question"); await input.press("Enter");
+    await page.getByRole("button", { name: "Stop response", exact: true }).waitFor();
+    await checkDocked(page);
+    await page.getByRole("button", { name: "Send message", exact: true }).waitFor();
+    await input.fill("A longer follow-up\n".repeat(15));
+    await checkDocked(page);
+    const dockedSend = await send.boundingBox();
+    assert.ok(dockedSend.y >= 0 && dockedSend.y + dockedSend.height <= height, "multiline docked send stays visible");
+    await page.screenshot({ path: `/tmp/openmods-composer-docked-${width}-${height}.png`, animations: "disabled" });
+    await page.reload(); await input.waitFor();
+  }
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await page.reload(); await input.waitFor();
+  await checkWelcome(page);
+  await input.fill("Animate the first message");
+  await page.evaluate(() => {
+    window.composerTransforms = [];
+    const sample = () => {
+      window.composerTransforms.push(getComputedStyle([...document.querySelectorAll("[data-chat-composer-motion]")].find((element) => element.getClientRects().length)).transform);
+      if (window.composerTransforms.length < 45) requestAnimationFrame(sample);
+    };
+    requestAnimationFrame(sample);
+  });
+  await input.press("Enter");
+  await page.getByRole("button", { name: "Stop response", exact: true }).waitFor();
+  await checkDocked(page);
+  assert.ok(await page.evaluate(() => window.composerTransforms.some((transform) => transform !== "none" && transform !== "matrix(1, 0, 0, 1, 0, 0)")), "normal motion animates the first docking transition");
+  await input.fill("Keep this follow-up draft");
+  await page.getByRole("button", { name: "Send message", exact: true }).waitFor();
+  assert.equal(await input.inputValue(), "Keep this follow-up draft", "streaming updates preserve the next draft");
+  assert.equal(await page.getByRole("region", { name: "Conversation with Atlas" }).locator("[data-chat-composer-motion]").evaluate((element) => getComputedStyle(element).transform), "none", "streaming does not restart the docking animation");
+  // Activity hides the route and cleans up its effects while preserving draft state.
+  await page.getByRole("button", { name: "Toggle Sidebar", exact: true }).first().click();
+  await page.getByRole("button", { name: "Dictate message", exact: true }).click();
+  await page.getByText("Listening… Tap the microphone to finish.", { exact: true }).waitFor();
+  await page.getByRole("link", { name: "OpenMods", exact: true }).click();
+  await page.waitForURL(new URL("/dashboard", baseUrl).href);
+  await page.waitForFunction(() => window.speechSessions.at(-1).aborted === true);
+  await page.goBack(); await page.waitForURL(chatUrl); await input.waitFor();
+  assert.equal(await page.getByRole("button", { name: "Dictate message", exact: true }).getAttribute("aria-pressed"), "false", "returning to a preserved chat resets the microphone UI");
+  assert.equal(await input.inputValue(), "Keep this follow-up draft", "navigation preserves the draft without restarting dictation");
+  assert.ok(await page.evaluate(() => window.speechSessions.every((session) => session.aborted)), "returning never resumes recording automatically");
+  const [chat] = await sql`SELECT last_message_preview FROM chats WHERE id=${chatId}`;
+  assert.equal(chat.last_message_preview, null, "chat requests do not persist messages or previews");
+  assert.deepEqual(errors, []);
+  console.log("Composer passed: compact controls, dictation start/stop/final words, edits, limits, permission/network/unsupported/startup failures, stale-result protection, unmount cleanup; centered 56px welcome, docking/motion, desktop/mobile fit, scrolling, keyboard, streaming, retry and API validation. Synthetic local sessions, mock speech recognition and streaming; no live microphone, OAuth or OpenAI call.");
+} catch (error) {
+  const page = contexts[0]?.pages()[0];
+  if (page) await page.screenshot({ path: "/tmp/openmods-composer-failure.png" });
+  throw error;
+} finally {
+  if (sql) { await sql`DELETE FROM chats WHERE id=${chatId}`; await sql`DELETE FROM bots WHERE id=${botId}`; }
+  for (const timer of timers) clearTimeout(timer);
+  mockServer.closeAllConnections(); await new Promise((resolve) => mockServer.close(resolve));
+  await Promise.all(contexts.map((context) => context.close())); await browser.close();
+}

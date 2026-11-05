@@ -1,10 +1,11 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
+import { redirect, RedirectType } from "next/navigation";
 import { nanoid } from "nanoid";
+import { and, eq, inArray } from "drizzle-orm";
 import { auth0 } from "@/lib/auth0";
-import { parseBotInput, type BotInputErrors } from "@/lib/bot-input";
+import { parseBotInput, parseBotUpdateInput, type BotInputErrors } from "@/lib/bot-input";
 import { getDb } from "@/lib/db";
 import { bots, chats, chatMembers } from "@/lib/db/schema";
 
@@ -45,4 +46,56 @@ export async function createBot(formData: FormData): Promise<CreateBotState> {
   // Reload the shared sidebar's chat query as well as the dashboard's bot list.
   revalidatePath("/(dashboard)", "layout");
   return { success: true };
+}
+
+export async function updateBot(botId: string, formData: FormData): Promise<CreateBotState> {
+  const session = await auth0.getSession();
+  if (!session?.user.sub) return { error: "Please sign in again before saving your bot." };
+  if (typeof botId !== "string" || !botId || botId.length > 128) {
+    return { error: "This bot is no longer available to edit." };
+  }
+  const input = parseBotUpdateInput(formData);
+  if (!input.valid) return { errors: input.errors };
+  try {
+    const updated = await getDb().update(bots).set({
+      name: input.values.name,
+      job: input.values.job,
+      instructions: input.values.instructions || null,
+    }).where(and(eq(bots.id, botId), eq(bots.userId, session.user.sub)))
+      .returning({ id: bots.id });
+    if (!updated.length) return { error: "This bot is no longer available to edit." };
+  } catch {
+    return { error: "We couldn’t save your bot. Your details are still here — please try again." };
+  }
+  revalidatePath("/(dashboard)", "layout");
+  return { success: true };
+}
+
+export async function deleteBot(botId: string): Promise<{ error?: string }> {
+  const session = await auth0.getSession();
+  if (!session?.user.sub) return { error: "Please sign in again before deleting your bot." };
+  if (typeof botId !== "string" || !botId || botId.length > 128) {
+    return { error: "This bot is no longer available to delete." };
+  }
+  try {
+    const db = getDb();
+    const ownedMemberships = db.select({ chatId: chatMembers.chatId }).from(chatMembers)
+      .innerJoin(bots, and(eq(bots.id, chatMembers.botId), eq(bots.userId, session.user.sub)))
+      .where(eq(bots.id, botId));
+    // One transaction removes direct chats and the bot. Group chats survive;
+    // their membership rows are removed by the bot foreign key's cascade.
+    const [, deleted] = await db.batch([
+      db.delete(chats).where(and(
+        eq(chats.userId, session.user.sub), eq(chats.kind, "direct"),
+        inArray(chats.id, ownedMemberships),
+      )),
+      db.delete(bots).where(and(eq(bots.id, botId), eq(bots.userId, session.user.sub)))
+        .returning({ id: bots.id }),
+    ]);
+    if (!deleted.length) return { error: "This bot is no longer available to delete." };
+  } catch {
+    return { error: "We couldn’t delete your bot. Please try again." };
+  }
+  revalidatePath("/(dashboard)", "layout");
+  redirect("/dashboard", RedirectType.replace);
 }
