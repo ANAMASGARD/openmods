@@ -128,3 +128,12 @@
     @apply font-sans;
   }
 }
+
+.dashboard-theme {
+  --background: #080808;
+  --card: #141414;
+  --popover: #141414;
+  --secondary: #242424;
+  --muted-foreground: #a1a1a1;
+  font-family: var(--font-geist-sans), sans-serif;
+}

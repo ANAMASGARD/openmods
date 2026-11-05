@@ -40,6 +40,10 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
+# Blender/Python authoring caches
+__pycache__/
+*.blend1
+
 # Auth0 credentials
 .env.local
 

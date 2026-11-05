@@ -35,6 +35,29 @@ The easiest way to deploy your Next.js app is to use the [Vercel Platform](https
 
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
 
+## Persistent sign-in
+
+Auth0 manages accounts; the Next.js SDK remembers the app session in an encrypted,
+HttpOnly cookie. `lib/auth-session.ts` enables rolling sessions with no absolute
+cutoff and a 400-day inactivity window. Each visit renews that window. The installed
+SDK uses the finite inactivity duration when calculating the encrypted cookie's expiry,
+even though the configured absolute duration is `Infinity`.
+This behavior is covered by SDK regression tests because an unlimited absolute
+duration is not explicitly documented by Auth0.
+
+Chrome [caps persistent cookies at 400 days](https://developer.chrome.com/blog/cookie-max-age-expires).
+Browser privacy settings can clear cookies sooner. Logout or clearing site data
+ends the browser session. Signed-in visitors to `/sign-in` and `/sign-up` go directly
+to `/dashboard`.
+
+For local development, keep `AUTH0_SECRET` unchanged in `.env.local` and consistently
+use `http://localhost:3000`, matching `APP_BASE_URL`. `127.0.0.1` has a separate cookie
+store. HTTPS deployments automatically receive Secure cookies. Auth0's own SSO
+session and API access-token lifetimes are separate from this app-session policy.
+
+- `npm run test:auth` checks real SDK renewal, invalid-cookie rejection, and security attributes without contacting Auth0.
+- With the dev server running, `npm run test:auth:browser` checks a full browser restart, auth-page redirects, and local logout using a disposable browser profile and synthetic localhost session. It does not test external OAuth/SSO.
+
 ## Database
 
 Neon Postgres is connected with Drizzle's HTTP driver. Keep `DATABASE_URL` in

@@ -1,4 +1,7 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
+import { Suspense } from "react";
+import { getOptionalSession } from "@/lib/auth0";
 import { AUTH_RETURN_TO, authLoginHref, authProviders } from "@/lib/auth-providers";
 import { ProviderIcon } from "@/components/provider-icon";
 import { OpenModsMark } from "@/components/landing/hero-content";
@@ -8,7 +11,22 @@ type AuthScreenProps = {
   mode: "signin" | "signup";
 };
 
-export function AuthScreen({ mode }: AuthScreenProps) {
+export function AuthScreen(props: AuthScreenProps) {
+  return (
+    <Suspense fallback={
+      <div className="auth-page" aria-busy="true">
+        <span role="status" className="sr-only">Checking your session</span>
+      </div>
+    }>
+      <AuthScreenContent {...props} />
+    </Suspense>
+  );
+}
+
+async function AuthScreenContent({ mode }: AuthScreenProps) {
+  const session = await getOptionalSession();
+  if (session?.user.sub) redirect(AUTH_RETURN_TO);
+
   const isSignup = mode === "signup";
   const otherHref = isSignup ? "/sign-in" : "/sign-up";
   const otherLabel = isSignup ? "Log In" : "Sign Up";
