@@ -29,7 +29,9 @@
     "test:creatures:dashboard": "node --import tsx scripts/check-dashboard-avatars.mjs",
     "test:creatures:selector": "node --import tsx scripts/check-creature-selector.mjs",
     "db:push": "drizzle-kit push",
-    "db:studio": "drizzle-kit studio"
+    "db:studio": "drizzle-kit studio",
+    "test:completion": "node --experimental-test-module-mocks --import tsx --test tests/chat-input.test.ts tests/chat-actions.test.mts tests/chat-agent.test.mts tests/chat-recipient.test.ts tests/daytona.test.mts tests/sandbox-policy.test.ts tests/sandbox-tools.test.mts tests/usage-sampler.test.mts tests/completion-policy.test.ts tests/private-operation.test.ts",
+    "test": "node --experimental-test-module-mocks --import tsx --test tests/*.test.ts tests/*.test.mts tests/*.test.mjs"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^4.0.87",
@@ -40,15 +42,21 @@
     "@ai-sdk/xai": "^5.0.29",
     "@auth0/nextjs-auth0": "^4.32.1",
     "@base-ui/react": "^1.9.0",
+    "@daytona/sdk": "0.230.0",
     "@dicebear/core": "^10.7.0",
     "@dicebear/styles": "^10.6.0",
     "@hookform/resolvers": "^6.0.0",
     "@neon/ai-sdk-provider": "^1.1.0",
     "@neondatabase/serverless": "^1.2.0",
+    "@novnc/novnc": "1.7.0",
     "@openrouter/ai-sdk-provider": "^3.1.0",
+    "@opentelemetry/api": "1.9.1",
+    "@opentelemetry/core": "2.8.0",
     "@radix-ui/react-use-controllable-state": "^1.3.0",
     "@react-three/fiber": "^9.8.2",
     "@rive-app/react-webgl2": "^4.37.1",
+    "@sentry/nextjs": "11.11.0",
+    "@sentry/node": "11.11.0",
     "@streamdown/cjk": "^1.0.4",
     "@streamdown/code": "^2.0.0",
     "@streamdown/math": "^1.0.3",
@@ -86,6 +94,7 @@
     "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@sentry/bundler-plugins": "11.11.0",
     "@tailwindcss/turbopack": "^4",
     "@trigger.dev/build": "^4.8.1",
     "@types/node": "^20",

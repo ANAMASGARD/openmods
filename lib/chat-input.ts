@@ -11,12 +11,14 @@ export type ReplyStyle = keyof typeof replyStyles;
 
 export const chatIdSchema = z.string().min(1).max(128);
 export const chatPreferencesSchema = z.object({
+  recipientId: chatIdSchema.optional(),
   style: z.enum(["balanced", "concise", "detailed"]).default("balanced"),
 });
 
 const incomingMessagesSchema = z.array(z.object({
   id: z.string().min(1).max(128),
   role: z.literal("user"),
+  metadata: z.object({ recipientId: chatIdSchema.optional() }).optional(),
   parts: z.array(z.object({ type: z.literal("text"), text: z.string().max(CHAT_TEXT_LIMIT) })).min(1).max(16),
 }).refine(({ parts }) => parts.some(({ text }) => text.trim()) &&
   parts.reduce((sum, { text }) => sum + text.length, 0) <= CHAT_TEXT_LIMIT)).max(1);

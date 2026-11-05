@@ -20,7 +20,7 @@ async function main() {
   const userId = `auth0|chat-schema-check-${randomUUID()}`;
 
   try {
-    const [bot] = await db.insert(bots).values({ userId, name: "Schema check", job: "Check relations" }).returning();
+    const [bot] = await db.insert(bots).values({ sandboxId: "schema-check-sandbox", userId, name: "Schema check", job: "Check relations" }).returning();
     const [direct] = await db.insert(chats).values({ userId }).returning();
     const [group] = await db.insert(chats).values({ userId, kind: "group", name: "Team" }).returning();
     assert.match(direct.id, /^[A-Za-z0-9_-]{21}$/);
@@ -76,7 +76,7 @@ async function main() {
       const botId = randomUUID();
       const chatId = failure === "chat" ? direct.id : randomUUID();
       await assert.rejects(db.batch([
-        db.insert(bots).values({ id: botId, userId, name: "Must roll back", job: "Rollback check" }),
+        db.insert(bots).values({ sandboxId: "schema-check-sandbox", id: botId, userId, name: "Must roll back", job: "Rollback check" }),
         db.insert(chats).values({ id: chatId, userId, kind: "direct" }),
         db.insert(chatMembers).values({ chatId, botId: randomUUID() }),
       ]), (error) => hasDatabaseCode(error, failure === "chat" ? "23505" : "23503"));

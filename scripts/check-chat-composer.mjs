@@ -20,7 +20,7 @@ const botId = randomUUID(), chatId = randomUUID();
 let sql;
 const mock = await createMockTriggerChat(baseUrl);
 const requests = mock.requests;
-const next = spawn(process.execPath, ["node_modules/next/dist/bin/next", "dev", "--port", new URL(baseUrl).port || "3000"], { env: { ...process.env, TRIGGER_API_URL: mock.origin, TRIGGER_SECRET_KEY: "tr_dev_test_only_not_a_real_key" }, stdio: ["ignore", openSync("/tmp/openmods-chat-browser-next.log", "w"), openSync("/tmp/openmods-chat-browser-next-errors.log", "w")] });
+const next = spawn(process.execPath, ["node_modules/next/dist/bin/next", process.env.OPENMODS_BROWSER_BUILD ? "start" : "dev", "--port", new URL(baseUrl).port || "3000"], { env: { ...process.env, TRIGGER_API_URL: mock.origin, TRIGGER_SECRET_KEY: "tr_dev_test_only_not_a_real_key" }, stdio: ["ignore", openSync("/tmp/openmods-chat-browser-next.log", "w"), openSync("/tmp/openmods-chat-browser-next-errors.log", "w")] });
 for (let attempt = 0; attempt < 90; attempt++) {
   if (next.exitCode !== null) { await mock.close(); await browser.close(); throw new Error("The test Next.js server could not start. See /tmp/openmods-chat-browser-next-errors.log."); }
   try { await fetch(baseUrl); break; } catch { await new Promise(resolve => setTimeout(resolve, 1000)); }
@@ -73,7 +73,7 @@ try {
     owners.push((await decrypt((await context.cookies()).find((cookie) => cookie.name === "__session").value, process.env.AUTH0_SECRET)).payload.user.sub);
   }
   sql = neon(process.env.DATABASE_URL);
-  await sql`INSERT INTO bots (id,user_id,name,avatar,job) VALUES (${botId},${owners[0]},'Atlas','chatComposerSeed123456','Developer')`;
+  await sql`INSERT INTO bots (id,user_id,name,avatar,job,sandbox_id) VALUES (${botId},${owners[0]},'Atlas','chatComposerSeed123456','Developer','browser-test-no-sandbox')`;
   await sql`INSERT INTO chats (id,user_id,kind) VALUES (${chatId},${owners[0]},'direct')`;
   await sql`INSERT INTO chat_members (chat_id,bot_id) VALUES (${chatId},${botId})`;
   const anonymous = await browser.newContext(); contexts.push(anonymous);
@@ -135,9 +135,11 @@ try {
     window.speechSessions.at(-1).onresult({ resultIndex: 0, results });
     window.speechSessions.at(-1).onresult({ resultIndex: 0, results });
   }, speechResults);
+  await page.waitForFunction(() => document.querySelector("textarea")?.value === "Please review this patch");
   assert.equal(await input.inputValue(), "Please review this patch", "dictation appends once and ignores interim results");
   await input.fill("Please review this patch carefully");
   await page.evaluate(() => window.speechSessions.at(-1).onresult({ resultIndex: 1, results: [{ isFinal: true, 0: { transcript: "this patch" } }, { isFinal: true, 0: { transcript: "and explain." } }] }));
+  await page.waitForFunction(() => document.querySelector("textarea")?.value === "Please review this patch carefully and explain.");
   assert.equal(await input.inputValue(), "Please review this patch carefully and explain.", "dictation preserves edits made while listening");
   assert.equal(requests.length, 0, "dictation does not submit the draft");
   await page.getByRole("button", { name: "Stop dictation", exact: true }).click();

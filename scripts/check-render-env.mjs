@@ -8,6 +8,8 @@ const requiredVariables = [
   "APP_BASE_URL",
   "DATABASE_URL",
   "TRIGGER_SECRET_KEY",
+  "DAYTONA_API_KEY",
+  "OPENMODS_ENV",
 ];
 
 function isHttpsOrigin(value) {
@@ -44,7 +46,9 @@ export function getRenderEnvErrors(env) {
       errors.push(`${key}: remove leading or trailing whitespace.`);
       continue;
     }
-    if (key === "APP_BASE_URL" && !isHttpsOrigin(value)) {
+    if (key === "OPENMODS_ENV" && value !== "production") {
+      errors.push("OPENMODS_ENV: use production on Render.");
+    } else if (key === "APP_BASE_URL" && !isHttpsOrigin(value)) {
       errors.push("APP_BASE_URL: use an HTTPS origin without credentials, a path, query, or fragment.");
     } else if (key === "DATABASE_URL" && !isPostgresUrl(value)) {
       errors.push("DATABASE_URL: use a postgres:// or postgresql:// URL with a hostname and database name.");

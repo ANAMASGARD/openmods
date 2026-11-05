@@ -7,6 +7,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { auth0 } from "@/lib/auth0";
 import { parseBotInput, parseBotUpdateInput, type BotInputErrors } from "@/lib/bot-input";
 import { getDb } from "@/lib/db";
+import { createBotSandbox, deleteBotSandbox } from "@/lib/daytona";
 import { bots, chats, chatMembers } from "@/lib/db/schema";
 
 export type CreateBotState = {
@@ -22,14 +23,17 @@ export async function createBot(formData: FormData): Promise<CreateBotState> {
   const { values, errors, valid } = parseBotInput(formData);
   if (!valid) return { errors };
 
+  let sandboxId: string | undefined;
   try {
     const db = getDb();
     const botId = nanoid();
     const chatId = nanoid();
+    sandboxId = await createBotSandbox(botId);
     // Neon HTTP batches run in one transaction: no partial bot/chat on failure.
     await db.batch([
       db.insert(bots).values({
         id: botId,
+        sandboxId,
         userId: session.user.sub,
         name: values.name,
         avatar: values.avatar,
@@ -40,6 +44,9 @@ export async function createBot(formData: FormData): Promise<CreateBotState> {
       db.insert(chatMembers).values({ chatId, botId }),
     ]);
   } catch {
+    if (sandboxId) {
+      try { await deleteBotSandbox(sandboxId); } catch { console.error("Sandbox cleanup required", { sandboxId }); }
+    }
     return { error: "We couldn’t save your bot. Your details are still here — please try again." };
   }
 
@@ -79,6 +86,9 @@ export async function deleteBot(botId: string): Promise<{ error?: string }> {
   }
   try {
     const db = getDb();
+    const [ownedBot] = await db.select({ sandboxId: bots.sandboxId }).from(bots).where(and(eq(bots.id, botId), eq(bots.userId, session.user.sub)));
+    if (!ownedBot) return { error: "This bot is no longer available to delete." };
+    await deleteBotSandbox(ownedBot.sandboxId);
     const ownedMemberships = db.select({ chatId: chatMembers.chatId }).from(chatMembers)
       .innerJoin(bots, and(eq(bots.id, chatMembers.botId), eq(bots.userId, session.user.sub)))
       .where(eq(bots.id, botId));

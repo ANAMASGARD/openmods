@@ -19,7 +19,7 @@ try {
   const [owner, otherOwner] = owners;
   const anonymous = await browser.newContext(); contexts.push(anonymous);
   sql = neon(process.env.DATABASE_URL);
-  await sql`INSERT INTO bots (id,user_id,name,avatar,job) VALUES (${botId},${owner},'Atlas','deleteBotSeed123456789','Developer'), (${teammateId},${owner},'Teammate','teammate','Reviewer'), (${foreignBotId},${otherOwner},'Other owner','foreign','Reviewer')`;
+  await sql`INSERT INTO bots (id,user_id,name,avatar,job,sandbox_id) VALUES (${botId},${owner},'Atlas','deleteBotSeed123456789','Developer','browser-test-no-sandbox'), (${teammateId},${owner},'Teammate','teammate','Reviewer','browser-test-no-sandbox'), (${foreignBotId},${otherOwner},'Other owner','foreign','Reviewer','browser-test-no-sandbox')`;
   await sql`INSERT INTO chats (id,user_id,kind,name) VALUES (${directId},${owner},'direct',NULL), (${groupId},${owner},'group','Team'), (${foreignChatId},${otherOwner},'direct',NULL)`;
   await sql`INSERT INTO chat_members (chat_id,bot_id) VALUES (${directId},${botId}), (${groupId},${botId}), (${groupId},${teammateId}), (${foreignChatId},${foreignBotId})`;
   const page = await contexts[0].newPage();

@@ -3,7 +3,7 @@
 import { useEffect, useId, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { MessageCircleIcon, SearchIcon } from "lucide-react";
+import { MessageCircleIcon, SearchIcon, ChartNoAxesCombinedIcon } from "lucide-react";
 import { ChatAvatar } from "@/components/chat-avatar";
 import { useCreatureMotion } from "@/components/creatures/creature-motion";
 import { SidebarChats, type SidebarChat } from "@/components/sidebar-chats";
@@ -62,6 +62,7 @@ export function SidebarWorkspace({ chats, error, account }: { chats: SidebarChat
                 <KbdGroup aria-hidden="true" className="group-data-[collapsible=icon]:hidden max-md:hidden"><Kbd>{shortcutModifier}</Kbd><Kbd>K</Kbd></KbdGroup>
               </SidebarMenuButton>
             </SidebarMenuItem>
+            <SidebarMenuItem><SidebarMenuButton render={<Link href="/usage" onNavigate={() => setOpenMobile(false)} />} tooltip="Usage" className="h-10 gap-3 group-data-[collapsible=icon]:size-10! group-data-[collapsible=icon]:justify-center [&>svg]:size-5"><ChartNoAxesCombinedIcon /><span className="group-data-[collapsible=icon]:hidden">Usage</span></SidebarMenuButton></SidebarMenuItem>
           </SidebarMenu>
         </SidebarHeader>
         <SidebarContent>

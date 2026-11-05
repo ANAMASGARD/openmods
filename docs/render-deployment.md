@@ -182,3 +182,58 @@ verify production OAuth or provider access. Check the deployed HTTPS origin:
 This preparation does not change database tables. Do not run schema commands on
 every build or startup. If a later feature changes a table, follow the project's
 development-only `npm run db:push` policy; do not add migrations or backfills.
+
+## Sandbox, groups, usage and monitoring release (November 2026)
+
+The local application now requires a persistent Daytona computer for every bot.
+Keep the current branch uncommitted until review. No production release is performed by the setup scripts.
+
+| Variable | Web | Trigger worker | Purpose |
+| --- | --- | --- | --- |
+| `DAYTONA_API_KEY` | required | required | Sandbox create/modify/delete permission; secret, never `NEXT_PUBLIC_` |
+| `DAYTONA_API_URL` | `https://app.daytona.io/api` | same | API endpoint, not a secret or desktop URL |
+| `OPENMODS_ENV` | `development` locally, `production` on Render | same environment as web | Sandbox labels and usage isolation |
+| `DATABASE_URL` | required | required | Matching environment database |
+| `OPENAI_API_KEY`, `OPENAI_CHAT_MODEL` | not required | existing settings | Model execution |
+| `SENTRY_DSN` | optional | optional | Sanitized error delivery |
+| `NEXT_PUBLIC_SENTRY_DSN` | optional, build time | not used | Browser error delivery |
+| `SENTRY_RELEASE` | same release in build/runtime | same release in build/runtime | Correlate web and worker errors |
+| `SENTRY_ORG`, `SENTRY_PROJECT`, `SENTRY_AUTH_TOKEN` | build only | deploy build only | Source-map upload; never public runtime credentials |
+| `MODEL_RATES_JSON` | not required | optional | Explicit model prices in USD per million tokens: `{ "model-id": { "input": 0, "cachedInput": 0, "output": 0 } }`; replace example rates with verified actual rates |
+
+Keep Auth0 settings web-only, and retain the existing Trigger project and secret key.
+Do not put signed desktop URLs into configuration: the server issues a fresh one-hour URL after checking chat ownership.
+
+Release order:
+
+1. Set development/production configuration separately. Local `.env.local` is ignored and contains the supplied Daytona key; never copy it into Git or logs.
+2. Stop writers for the development schema reset. This project deliberately discards existing data when the schema changes. Apply the combined schema with `npm run db:push` as a standalone release step. Do not run it at every startup or generate migrations.
+3. Deploy the compatible worker using `npx trigger.dev@4.8.1 deploy --env prod`, supplying production runtime secrets in Trigger's environment settings and source-map credentials only to the build. The sampler's five-minute UTC cron activates on production deployment; it does not run automatically in development.
+4. Release the web build to Render only after the matching worker is ready. Check `/healthz`, real Auth0 sign-in, bot creation, direct desktop view/fullscreen/control, group creation/edit/delete, handoff, reload, and usage.
+5. For rollback, stop new chat turns, restore matching web and worker releases together, and reapply their schema against a clean development dataset if required. Existing sandbox IDs must match the restored application; delete abandoned project/environment-labeled sandboxes to avoid orphan resources.
+
+`npm run dev:trigger` loads `.env.local` for local worker execution. The Next dev server also reads that file. Restart both after changing credentials.
+
+Operational behavior: sandboxes stop after 15 idle minutes and never auto-delete; opening a bot computer restarts it. Bots share their own `MEMORY.md` across conversations, while transcripts remain chat-specific. Deleting a group keeps its bots. Deleting a bot deletes its computer and direct chat, and preserves its groups. Empty groups are readable and editable but cannot send.
+
+Usage is informational: provider token totals, costs only when matching explicit rates are configured, and sampled **estimated sandbox usage**. Five-minute observations are not billing measurements. No paywalls, quotas, subscriptions or payment controls are installed.
+
+Monitoring is optional without a DSN. Session replay and local-variable capture are disabled; payloads, signed URLs, identities and content are excluded from error/span/log hooks. Live Sentry delivery and source-map uploads need the optional Sentry configuration and must be checked at release time.
+
+Verification commands:
+
+```sh
+npm test
+node --experimental-test-module-mocks --import tsx --test tests/daytona.test.mts tests/sandbox-policy.test.ts tests/completion-policy.test.ts
+npm run test:chats:db
+npx tsc --noEmit
+npm run build
+node --env-file=.env.local --import tsx scripts/check-daytona-live.mts
+# Requires local Next and Trigger workers; creates and deletes real test sandboxes:
+node --env-file=.env.local --import tsx scripts/check-completion-live.mjs
+node scripts/check-groups.mjs
+# Uses a mock Trigger backend and synthetic local Auth0 session, with a separate production server:
+OPENMODS_BROWSER_BUILD=1 node scripts/check-chat-composer.mjs http://localhost:3001
+```
+
+The browser helpers use synthetic local Auth0 cookies. They establish application ownership behavior, not an actual OAuth login round trip.

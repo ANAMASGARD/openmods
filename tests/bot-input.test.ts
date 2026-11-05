@@ -118,7 +118,8 @@ test("Drizzle insert validation requires ownership while public input excludes p
   const protectedFields = { userId: "forged-owner", id: "forged-id", sandboxId: "forged-sandbox", createdAt: new Date() };
   assert.deepEqual(botCreateSchema.parse({ ...editable, ...protectedFields }), editable);
   assert.equal(botInsertSchema.safeParse({ name: "Atlas", job: "Developer" }).success, false);
-  assert.equal(botInsertSchema.safeParse({ userId: "auth0|verified", name: "Atlas", job: "Developer", instructions: null }).success, true);
+  assert.equal(botInsertSchema.safeParse({ userId: "owner", name: "Atlas", job: "Developer" }).success, false);
+  assert.equal(botInsertSchema.safeParse({ userId: "auth0|verified", sandboxId: "verified-sandbox", name: "Atlas", job: "Developer", instructions: null }).success, true);
 });
 
 test("browser and server validation share trimming and required-field rules", () => {

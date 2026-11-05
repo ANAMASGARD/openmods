@@ -27,10 +27,16 @@ const model = new MockLanguageModelV3({ doStream: async (options) => {
   ] }) };
 } });
 mock.module(require.resolve("@ai-sdk/openai"), { namedExports: { openai: () => model } });
-mock.module(require.resolve("drizzle-orm/neon-http"), { namedExports: { drizzle: () => {
-  const query = { from: () => query, leftJoin: () => query, where: () => query, orderBy: () => query, limit: async () => [{ name: "Chat", botName: "Atlas", job: "Developer", instructions: "Server-owned instructions" }] };
-  return { select: () => query };
+const bot = { id: 'bot-1', name: 'Atlas', avatar: 'atlas', job: 'Developer', instructions: 'Server-owned instructions', sandboxId: 'sandbox-1' };
+mock.module(require.resolve('../lib/chat-context'), { namedExports: {
+  getChatContext: async () => ({ row: { userId: 'owner', kind: 'direct' }, bot, members: [bot] }),
+  botIdentity: (value: typeof bot) => ({ id: value.id, name: value.name, avatar: value.avatar }),
+} });
+mock.module(require.resolve('../lib/runtime-db'), { namedExports: { runtimeDb: () => {
+  const query = { from: () => query, where: async () => [{ userId: 'owner' }], set: () => query };
+  return { select: () => query, update: () => query };
 } } });
+mock.module(require.resolve('../lib/usage'), { namedExports: { recordAiUsage: async () => {} } });
 process.env.DATABASE_URL = "mock-database";
 process.env.OPENAI_API_KEY = "mock-key";
 const { openmodsChat } = await import("../src/trigger/chat");

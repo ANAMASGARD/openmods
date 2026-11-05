@@ -5,6 +5,8 @@ import test from "node:test";
 import { getRenderEnvErrors } from "../scripts/check-render-env.mjs";
 
 const validEnv = {
+  DAYTONA_API_KEY: "test-daytona-key",
+  OPENMODS_ENV: "production",
   AUTH0_DOMAIN: "auth.example.com",
   AUTH0_CLIENT_ID: "test-client",
   AUTH0_CLIENT_SECRET: "test-client-secret",

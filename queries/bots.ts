@@ -15,14 +15,15 @@ export async function getUserChat(chatId: string) {
   const ownedChats = await getOwnedChats(chatId);
   const chat = ownedChats[0];
   if (!chat) return null;
-  const [bot] = await getDb().select({
+  const members = await getDb().select({
     id: bots.id, name: bots.name, avatar: bots.avatar, job: bots.job, instructions: bots.instructions,
   }).from(chatMembers)
     .innerJoin(chats, and(eq(chats.id, chatMembers.chatId), eq(chats.userId, session.user.sub)))
     .innerJoin(bots, and(eq(bots.id, chatMembers.botId), eq(bots.userId, session.user.sub)))
     .where(eq(chatMembers.chatId, chatId))
-    .orderBy(asc(chatMembers.joinedAt), asc(chatMembers.botId)).limit(1);
-  return { ...chat, bot: bot ? { ...bot, instructions: bot.instructions ?? "" } : null };
+    .orderBy(asc(chatMembers.joinedAt), asc(chatMembers.botId));
+  const bot = chat.kind === "direct" ? members[0] : undefined;
+  return { ...chat, members, bot: bot ? { ...bot, instructions: bot.instructions ?? "" } : null };
 }
 
 async function getOwnedChats(chatId?: string) {
@@ -45,13 +46,14 @@ async function getOwnedChats(chatId?: string) {
     .orderBy(desc(chats.lastMessageAt), desc(chats.id), asc(chatMembers.joinedAt), asc(chatMembers.botId));
 
   const unique = new Map<string, {
-    id: string; name: string; avatar: string | null; preview: string | null; lastMessageAt: Date;
+    id: string; kind: "direct" | "group"; name: string; avatar: string | null; preview: string | null; lastMessageAt: Date;
   }>();
   for (const row of rows) {
     const previous = unique.get(row.id);
     if (previous?.avatar || (previous && !row.avatar)) continue;
     unique.set(row.id, {
       id: row.id,
+      kind: row.kind,
       name: row.kind === "group" ? row.name || row.botName || "Group chat" : row.botName || "New chat",
       avatar: row.avatar,
       preview: row.preview,

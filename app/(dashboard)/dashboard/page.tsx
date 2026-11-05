@@ -7,6 +7,7 @@ import { auth0 } from "@/lib/auth0";
 import { getDb } from "@/lib/db";
 import { bots } from "@/lib/db/schema";
 import { ChatAvatar } from "@/components/chat-avatar";
+import { GroupDialog } from "@/components/group-dialog";
 import { CreateBotDialog } from "@/components/dashboard/create-bot-dialog";
 import { DashboardWelcome } from "@/components/dashboard/dashboard-welcome";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -49,7 +50,7 @@ async function DashboardContent() {
           <h1 id="bots-title" className="text-2xl font-medium tracking-tight">Your bots</h1>
           <p className="text-sm text-muted-foreground">A little personality. A purpose of their own.</p>
         </div>
-        <CreateBotDialog />
+        <div className="flex gap-2"><GroupDialog /><CreateBotDialog /></div>
       </header>
       <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {userBots.map((bot) => (

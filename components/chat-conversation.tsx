@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useRef, useState, useEffect } from "react";
 import { useChat } from "@ai-sdk/react";
 import type { UIMessage } from "ai";
 import { useTriggerChatTransport } from "@trigger.dev/sdk/chat/react";
@@ -13,7 +13,12 @@ import { CHAT_TEXT_LIMIT, replyStyles, type ReplyStyle } from "@/lib/chat-input"
 import { cn } from "@/lib/utils";
 import { useChatDictation } from "@/hooks/use-chat-dictation";
 import { Conversation, ConversationContent, ConversationScrollButton } from "@/components/ai-elements/conversation";
-import { Message, MessageContent, MessageResponse } from "@/components/ai-elements/message";
+import { ChatMessageParts } from "@/components/chat-message-parts";
+import type { GroupMember } from "@/lib/group-form-schema";
+import type { ChatMetadata } from "@/lib/sandbox-tools";
+import { resolveRecipientId } from "@/lib/chat-recipient";
+import { useRouter } from "next/navigation";
+import { Message, MessageContent } from "@/components/ai-elements/message";
 import { PromptInput, PromptInputTextarea, PromptInputSubmit } from "@/components/ai-elements/prompt-input";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -26,9 +31,15 @@ const starters = [
   { label: "Explain an error", text: "Help me understand and fix this error:\n\n", icon: TerminalIcon },
 ];
 
-export function ChatConversation({ chatId, name, initialMessages, initialSession }: {
+export function ChatConversation({ chatId, name, initialMessages, initialSession, members, kind }: {
+  members: GroupMember[]; kind: "direct" | "group";
   chatId: string; name: string; initialMessages: UIMessage[]; initialSession?: ChatSessionPersistedState;
 }) {
+  const [selectedRecipientId, setRecipientId] = useState(members[0]?.id ?? "");
+  const recipientId = resolveRecipientId(members, selectedRecipientId);
+  const router = useRouter();
+  const recipientRef = useRef(recipientId);
+  useEffect(() => { recipientRef.current = recipientId; }, [recipientId]);
   const [draft, setDraft] = useState("");
   const dictation = useChatDictation(setDraft);
   const [style, setStyle] = useState<ReplyStyle>("balanced");
@@ -38,14 +49,16 @@ export function ChatConversation({ chatId, name, initialMessages, initialSession
   const transport = useTriggerChatTransport<typeof openmodsChat>({
     task: "openmods-chat",
     accessToken: ({ chatId }) => mintChatAccessToken(chatId),
-    startSession: ({ chatId }) => startChatSession({ chatId }),
-    clientData: { style },
+    startSession: ({ chatId }) => startChatSession({ chatId, recipientId: recipientRef.current || undefined }),
+    clientData: { style, recipientId: recipientId || undefined },
     sessions: initialSession ? { [chatId]: initialSession } : undefined,
   });
   const { messages, sendMessage, status, stop, error, regenerate, clearError } = useChat({
     id: chatId, transport, messages: initialMessages, resume: !!initialSession,
   });
   const busy = status === "submitted" || status === "streaming";
+  const previousStatus = useRef(status);
+  useEffect(() => { if (previousStatus.current !== "ready" && status === "ready") router.refresh(); previousStatus.current = status; }, [status, router]);
   const hasDraft = draft.trim().length > 0;
   const hasMessages = messages.length > 0;
   const reduceMotion = useReducedMotion();
@@ -68,9 +81,7 @@ export function ChatConversation({ chatId, name, initialMessages, initialSession
             <Message key={message.id} from={message.role} className="max-w-full">
               <span className="sr-only">{message.role === "user" ? "You" : name}</span>
               <MessageContent className="group-[.is-user]:max-w-[90%] group-[.is-user]:rounded-3xl group-[.is-user]:px-5 group-[.is-user]:py-3">
-                {message.parts.map((part, index) => part.type === "text" ? (
-                  message.role === "user" ? <p key={index} className="whitespace-pre-wrap wrap-anywhere leading-7">{part.text}</p> : <MessageResponse key={index}>{part.text}</MessageResponse>
-                ) : null)}
+                <ChatMessageParts message={message} fallback={name} active={busy && message.id === messages.at(-1)?.id} />
               </MessageContent>
             </Message>
           ))}
@@ -84,26 +95,27 @@ export function ChatConversation({ chatId, name, initialMessages, initialSession
       >
         {!hasMessages && <h2 className="mb-7 text-center text-2xl font-medium tracking-tight sm:mb-8 sm:text-3xl">What are we working on?</h2>}
         {/* Keep the form mounted while its position changes, including during retries. */}
+        {kind === "group" && <div className="mb-3 flex items-center gap-2 text-sm"><label htmlFor="chat-recipient">Send to</label><select id="chat-recipient" value={recipientId} disabled={busy || !members.length} onChange={event => setRecipientId(event.target.value)} className="max-w-56 rounded-lg border bg-background px-3 py-2">{members.map(member => <option key={member.id} value={member.id}>{member.name}</option>)}</select>{!members.length && <span role="status">Add teammates to send messages.</span>}</div>}
         <motion.div
           layout={reduceMotion ? false : "position"}
           layoutDependency={hasMessages}
           transition={{ layout: { duration: 0.22, ease: [0.22, 1, 0.36, 1] } }}
           data-chat-composer-motion
         >
-          {(error || inputError || dictation.error) && <Alert variant="destructive" className="mb-3"><AlertDescription className="flex flex-wrap items-center justify-between gap-2"><span>{dictation.error ?? inputError ?? "Couldn’t get a reply. Your message is still here. Try again in a moment."}</span>{error && <Button variant="ghost" size="sm" disabled={busy} onClick={() => { if (sending.current) return; sending.current = true; dictation.cancel(); clearError(); void regenerate().finally(() => { sending.current = false; }); }}><RotateCcwIcon data-icon="inline-start" />Retry</Button>}</AlertDescription></Alert>}
+          {(error || inputError || dictation.error) && <Alert variant="destructive" className="mb-3"><AlertDescription className="flex flex-wrap items-center justify-between gap-2"><span>{dictation.error ?? inputError ?? "Couldn’t get a reply. Your message is still here. Try again in a moment."}</span>{error && <Button variant="ghost" size="sm" disabled={busy} onClick={() => { if (sending.current) return; sending.current = true; dictation.cancel(); clearError(); void regenerate({ body: { style, recipientId: (messages.findLast(m => m.role === "user")?.metadata as ChatMetadata | undefined)?.recipientId ?? recipientId } }).finally(() => { sending.current = false; }); }}><RotateCcwIcon data-icon="inline-start" />Retry</Button>}</AlertDescription></Alert>}
           <PromptInput
             aria-label="Message composer"
             maxFiles={0}
             onError={() => setInputError("This chat supports text messages. Paste the text you’d like to discuss.")}
             className="[&>[data-slot=input-group]]:min-h-14 [&>[data-slot=input-group]]:items-end [&>[data-slot=input-group]]:rounded-[28px] [&>[data-slot=input-group]]:border-white/[0.06] [&>[data-slot=input-group]]:bg-[#222222] [&>[data-slot=input-group]]:p-[5px] [&>[data-slot=input-group]]:shadow-none [&>[data-slot=input-group]]:focus-within:border-white/20 [&>[data-slot=input-group]]:focus-within:ring-1 [&>[data-slot=input-group]]:focus-within:ring-white/10 [&>[data-slot=input-group]]:has-disabled:opacity-100 [&>[data-slot=input-group]]:has-disabled:bg-[#222222]"
             onSubmit={({ text }) => {
-              if (!text.trim() || busy || sending.current) return;
+              if (!text.trim() || busy || sending.current || !members.length || !members.some(m => m.id === recipientId)) return;
               sending.current = true;
               dictation.cancel();
               setInputError(undefined);
               clearError();
               setDraft("");
-              void sendMessage({ text: text.trim() }).finally(() => { sending.current = false; });
+              void sendMessage({ text: text.trim(), metadata: { recipientId } }).finally(() => { sending.current = false; });
             }}
           >
             <InputGroupAddon align="inline-start" className="self-end p-0 has-[>button]:ml-0">
@@ -140,7 +152,7 @@ export function ChatConversation({ chatId, name, initialMessages, initialSession
               <PromptInputSubmit
                 status={status}
                 onStop={() => { void stop(); void transport.stopGeneration(chatId).then((stopped) => { if (!stopped) setInputError("Couldn’t stop the reply. Please try again."); }); }}
-                disabled={!busy && !hasDraft}
+                disabled={!busy && (!hasDraft || !members.length || !members.some(m => m.id === recipientId))}
                 aria-label={busy ? "Stop response" : "Send message"}
                 title={busy ? "Stop response" : hasDraft ? "Send message" : "Type a message to send"}
                 variant="ghost"

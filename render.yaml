@@ -32,3 +32,9 @@ services:
         sync: false
       - key: TRIGGER_SECRET_KEY
         sync: false
+      - key: DAYTONA_API_KEY
+        sync: false
+      - key: DAYTONA_API_URL
+        value: https://app.daytona.io/api
+      - key: OPENMODS_ENV
+        value: production

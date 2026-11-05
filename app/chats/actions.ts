@@ -25,10 +25,14 @@ function mintToken(chatId: string) {
   });
 }
 
-export async function startChatSession(input: { chatId: string }) {
+export async function startChatSession(input: { chatId: string; recipientId?: string }) {
   const chatId = await requireChatOwner(input?.chatId);
   try {
-    return await startSession({ chatId, clientData: { style: "balanced" } });
+    if (input.recipientId) {
+      const owned = await getUserChat(chatId);
+      if (!owned?.members.some(member => member.id === input.recipientId)) throw new Error("Invalid recipient");
+    }
+    return await startSession({ chatId, clientData: { style: "balanced", ...(input.recipientId ? { recipientId: input.recipientId } : {}) } });
   } catch {
     throw new Error("Couldn’t start the reply. Please try again.");
   }

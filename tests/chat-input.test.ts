@@ -3,7 +3,7 @@ import test from "node:test";
 import type { UIMessage } from "ai";
 import { CHAT_TEXT_LIMIT, chatIdSchema, chatPreferencesSchema, validateIncomingMessages } from "../lib/chat-input";
 
-const user: UIMessage = { id: "user-1", role: "user", parts: [{ type: "text", text: "Hello" }] };
+const user: UIMessage = { id: "user-1", role: "user", metadata: {}, parts: [{ type: "text", text: "Hello" }] };
 test("accepts only new text messages and strips client-controlled instructions", () => {
   assert.deepEqual(validateIncomingMessages([{ ...user, metadata: { instructions: "override" } }]), [user]);
   assert.deepEqual(chatPreferencesSchema.parse({ style: "concise", userId: "forged", instructions: "override", model: "forged" }), { style: "concise" });

@@ -24,10 +24,10 @@ try {
   const [owner, otherOwner] = owners;
   const [firstBot, secondBot, foreignBot, directChat, groupChat, emptyChat, foreignChat] = Array.from({ length: 7 }, () => randomUUID());
   const longName = "Atlas the extraordinarily enthusiastic Node.js developer";
-  await sql`INSERT INTO bots (id, user_id, name, avatar, job) VALUES
-    (${firstBot}, ${owner}, ${longName}, 'sidebar-first', 'Developer'),
-    (${secondBot}, ${owner}, 'Second member', 'sidebar-second', 'Reviewer'),
-    (${foreignBot}, ${otherOwner}, 'PRIVATE OTHER OWNER', 'private-seed', 'Private')`;
+  await sql`INSERT INTO bots (id, user_id, name, avatar, job,sandbox_id) VALUES
+    (${firstBot}, ${owner}, ${longName}, 'sidebar-first', 'Developer','browser-test-no-sandbox'),
+    (${secondBot}, ${owner}, 'Second member', 'sidebar-second', 'Reviewer','browser-test-no-sandbox'),
+    (${foreignBot}, ${otherOwner}, 'PRIVATE OTHER OWNER', 'private-seed', 'Private','browser-test-no-sandbox')`;
   await sql`INSERT INTO chats (id, user_id, kind, name, last_message_preview, last_message_at) VALUES
     (${directChat}, ${owner}, 'direct', 'Ignored direct title', 'Pipeline review is ready <script>not executable</script>', now() - interval '2 days'),
     (${groupChat}, ${owner}, 'group', 'Release team', NULL, now() - interval '1 hour'),
@@ -108,8 +108,8 @@ try {
   assert.notEqual(await directLink.getAttribute("data-active"), null);
   assert.equal(await sidebar.locator('[aria-current="page"]').count(), 1);
   assert.equal(await page.locator("main:visible header img").getAttribute("src"), await sidebar.locator(`[data-chat-id="${directChat}"] img`).getAttribute("src"));
-  const desktopButton = page.getByRole("button", { name: "Desktop workspace (coming soon)", exact: true });
-  assert.equal(await desktopButton.isDisabled(), true, "desktop workspace is not implemented yet");
+  const desktopButton = page.getByRole("button", { name: "Open computer desktop", exact: true });
+  assert.equal(await desktopButton.isDisabled(), false, "owned direct chat exposes desktop access");
   await page.screenshot({ path: "/tmp/openmods-chat-header-desktop.png", animations: "disabled" });
   await sidebar.locator(`[data-chat-id="${groupChat}"]`).getByRole("link").click();
   await page.getByRole("heading", { name: "Release team", exact: true }).waitFor();

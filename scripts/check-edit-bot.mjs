@@ -16,7 +16,7 @@ try {
   contexts.push(context);
   owner = (await decrypt((await context.cookies()).find((cookie) => cookie.name === "__session").value, process.env.AUTH0_SECRET)).payload.user.sub;
   sql = neon(process.env.DATABASE_URL);
-  await sql`INSERT INTO bots (id,user_id,name,avatar,job,instructions) VALUES (${botId},${owner},'Atlas',${seed},'Developer','Keep my custom instructions.')`;
+  await sql`INSERT INTO bots (id,user_id,name,avatar,job,instructions,sandbox_id) VALUES (${botId},${owner},'Atlas',${seed},'Developer','Keep my custom instructions.','browser-test-no-sandbox')`;
   await sql`INSERT INTO chats (id,user_id,kind) VALUES (${chatId},${owner},'direct')`;
   await sql`INSERT INTO chat_members (chat_id,bot_id) VALUES (${chatId},${botId})`;
   const url = new URL(`/chats/${chatId}`, baseUrl).href;
@@ -95,7 +95,7 @@ try {
   const saved = await row();
   assert.equal(saved.name, "Atlas updated"); assert.equal(saved.job, "Reviewer");
   assert.equal(saved.instructions, "Keep my custom instructions.");
-  assert.equal(saved.avatar, seed); assert.equal(saved.user_id, owner); assert.equal(saved.sandbox_id, null);
+  assert.equal(saved.avatar, seed); assert.equal(saved.user_id, owner); assert.equal(saved.sandbox_id, "browser-test-no-sandbox");
   await page.locator(`[data-chat-id="${chatId}"]`).getByRole("link", { name: "Open chat Atlas updated", exact: true }).waitFor();
 
   // Replay the actual action under a different and an anonymous session.

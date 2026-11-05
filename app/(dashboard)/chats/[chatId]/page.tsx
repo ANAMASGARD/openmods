@@ -3,6 +3,8 @@ import { notFound, redirect } from "next/navigation";
 import { auth0 } from "@/lib/auth0";
 import { getUserChat } from "@/queries/bots";
 import { ChatConversation } from "@/components/chat-conversation";
+import { GroupDialog } from "@/components/group-dialog";
+import { DesktopWorkspace } from "@/components/desktop-workspace";
 import { ChatHeader } from "@/components/chat-header";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -34,10 +36,11 @@ async function ChatContent({ params }: ChatPageProps) {
   if (!chat) notFound();
 
   return (
-    <>
-      <ChatHeader name={chat.name} avatar={chat.avatar} bot={chat.bot} />
-      <ChatConversation key={chat.id} chatId={chat.id} name={chat.name} initialMessages={history?.messages ?? []} initialSession={history?.session} />
-    </>
+    <DesktopWorkspace chatId={chat.id} enabled={chat.kind === "direct" && !!chat.bot}>
+      <ChatHeader name={chat.name} avatar={chat.avatar} bot={chat.bot} members={chat.kind === "group" ? chat.members : undefined} />
+      {chat.kind === "group" && <div className="flex justify-end border-b px-4 py-2"><GroupDialog group={{ id: chat.id, name: chat.name, members: chat.members }} /></div>}
+      <ChatConversation kind={chat.kind} members={chat.members} key={chat.id} chatId={chat.id} name={chat.name} initialMessages={history?.messages ?? []} initialSession={history?.session} />
+    </DesktopWorkspace>
   );
 }
 
