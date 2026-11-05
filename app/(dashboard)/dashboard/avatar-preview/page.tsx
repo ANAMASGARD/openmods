@@ -20,7 +20,7 @@ async function ProtectedPreview({ searchParams }: { searchParams: PreviewParams 
 
 export default function AvatarPreviewPage({ searchParams }: { searchParams: PreviewParams }) {
   return (
-    <main className="dark dashboard-theme min-h-dvh bg-background text-foreground">
+    <main className="min-w-0 flex-1">
       <Suspense fallback={<div className="flex min-h-dvh items-center justify-center"><Spinner aria-label="Loading creature preview" /></div>}>
         <ProtectedPreview searchParams={searchParams} />
       </Suspense>

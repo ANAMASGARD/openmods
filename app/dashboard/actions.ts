@@ -1,6 +1,6 @@
 "use server";
 
-import { refresh } from "next/cache";
+import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { nanoid } from "nanoid";
 import { auth0 } from "@/lib/auth0";
@@ -42,6 +42,7 @@ export async function createBot(formData: FormData): Promise<CreateBotState> {
     return { error: "We couldn’t save your bot. Your details are still here — please try again." };
   }
 
-  refresh();
+  // Reload the shared sidebar's chat query as well as the dashboard's bot list.
+  revalidatePath("/(dashboard)", "layout");
   return { success: true };
 }

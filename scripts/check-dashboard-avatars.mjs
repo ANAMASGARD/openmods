@@ -48,8 +48,13 @@ async function verifyDirectChat(owner, botId) {
   return chats[0];
 }
 
-async function openDialog(page) {
-  await page.getByRole("button", { name: "Create a new bot", exact: true }).click();
+async function openDialog(page, fromSidebar = false) {
+  if (fromSidebar) {
+    await page.getByRole("button", { name: "Create new", exact: true }).click();
+    await page.getByRole("menuitem", { name: "Create new bot", exact: true }).click();
+  } else {
+    await page.getByRole("button", { name: "Create a new bot", exact: true }).click();
+  }
   const dialog = page.getByRole("dialog", { name: "Create your bot", exact: true });
   await dialog.waitFor();
   await dialog.locator("[data-renderer-status='ready']").waitFor();
@@ -83,6 +88,19 @@ try {
   });
   assert.equal((await rows(owner)).length, 0);
   const welcome = page.locator("main [data-creature]");
+  const sidebarCreate = page.getByRole("button", { name: "Create new", exact: true });
+  await sidebarCreate.click();
+  await page.getByRole("menuitem", { name: "Create group chat", exact: true }).click();
+  assert.equal(await page.getByRole("dialog").count(), 0, "group chat is an inactive placeholder");
+  assert.equal((await rows(owner)).length, 0);
+  await sidebarCreate.click();
+  await page.getByRole("menuitem", { name: "Create new bot", exact: true }).click();
+  const sidebarDialog = page.getByRole("dialog", { name: "Create your bot", exact: true });
+  await sidebarDialog.waitFor();
+  assert.equal(await welcome.getAttribute("data-creature-state"), "paused", "sidebar creation pauses the welcome character");
+  await page.keyboard.press("Escape");
+  await sidebarDialog.waitFor({ state: "hidden" });
+  assert.ok(await sidebarCreate.evaluate((element) => element === document.activeElement), "sidebar dialog restores focus to its plus button");
   const welcomeSelector = page.locator("main [data-creature-selector]");
   await welcomeSelector.getByRole("button", { name: "Choose Spark jerboa", exact: true }).click();
   await page.waitForFunction(() => document.querySelector("main [data-selected-creature='spark-jerboa'] [data-renderer-status='ready']"));
@@ -193,7 +211,16 @@ try {
   assert.equal(saved[0].job, nodePreset.job, "the selected developer role is persisted");
   assert.equal(saved[0].instructions, "Keep these instructions through retries.");
   const savedChat = await verifyDirectChat(owner, saved[0].id);
-  const portrait = page.getByRole("img", { name: "Avatar persistence check avatar", exact: true });
+  const sidebarChat = page.locator(`[data-chat-id="${savedChat.id}"]`);
+  await sidebarChat.getByText("Avatar persistence check", { exact: true }).waitFor();
+  assert.equal(await sidebarChat.getByRole("img").getAttribute("src"), identity.portrait, "new chat immediately shows the saved avatar");
+  await page.getByRole("button", { name: "Search chats", exact: true }).click();
+  const chatSearch = page.getByRole("dialog", { name: "Search chats", exact: true });
+  await chatSearch.getByRole("option", { name: /Avatar persistence check/ }).waitFor();
+  assert.equal(await chatSearch.getByRole("img").getAttribute("src"), identity.portrait, "command search refreshes after creation too");
+  await page.keyboard.press("Escape");
+  await chatSearch.waitFor({ state: "hidden" });
+  const portrait = page.locator("main").getByRole("img", { name: "Avatar persistence check avatar", exact: true });
   assert.equal(await portrait.getAttribute("data-creature"), identity.species);
   assert.equal(await portrait.getAttribute("data-creature-variant"), identity.variant);
   assert.equal(await portrait.getAttribute("src"), identity.portrait);
@@ -206,7 +233,7 @@ try {
 
   const second = await setup();
   assert.equal(await second.page.getByRole("heading", { name: "Avatar persistence check", exact: true }).count(), 0, "another session cannot see the first owner's bot");
-  const other = await openDialog(second.page);
+  const other = await openDialog(second.page, true);
   await other.dialog.getByLabel("Name", { exact: true }).fill("Ownership boundary check");
   await other.dialog.getByLabel("What’s their job?", { exact: true }).fill("Verify session-scoped creation");
   await addFields(other.dialog, { userId: owner, id: saved[0].id, chatId: savedChat.id, botId: saved[0].id, kind: "group", sandboxId: "forged-sandbox", createdAt: "2000-01-01" });
@@ -220,6 +247,7 @@ try {
   assert.notEqual(secondSaved[0].id, saved[0].id);
   assert.deepEqual(await rows(owner), saved, "a forged owner must not alter the other user's row");
   const secondChat = await verifyDirectChat(second.owner, secondSaved[0].id);
+  await second.page.locator(`[data-chat-id="${secondChat.id}"]`).getByText("Ownership boundary check", { exact: true }).waitFor();
   assert.notEqual(secondChat.id, savedChat.id, "chat IDs are generated on the server");
   assert.deepEqual(await verifyDirectChat(owner, saved[0].id), savedChat);
 

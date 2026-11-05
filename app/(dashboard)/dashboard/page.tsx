@@ -7,7 +7,6 @@ import { auth0 } from "@/lib/auth0";
 import { getDb } from "@/lib/db";
 import { bots } from "@/lib/db/schema";
 import { ChatAvatar } from "@/components/chat-avatar";
-import { CreatureMotionProvider } from "@/components/creatures/creature-motion";
 import { CreateBotDialog } from "@/components/dashboard/create-bot-dialog";
 import { DashboardWelcome } from "@/components/dashboard/dashboard-welcome";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -71,12 +70,10 @@ async function DashboardContent() {
 
 export default function DashboardPage() {
   return (
-    <main className="dark dashboard-theme flex min-h-dvh items-center justify-center bg-background px-6 text-foreground">
-      <CreatureMotionProvider>
-        <Suspense fallback={<Spinner aria-label="Loading your bots" />}>
-          <DashboardContent />
-        </Suspense>
-      </CreatureMotionProvider>
+    <main className="flex min-h-[calc(100svh-3rem)] min-w-0 flex-1 items-center justify-center px-6">
+      <Suspense fallback={<Spinner aria-label="Loading your bots" />}>
+        <DashboardContent />
+      </Suspense>
     </main>
   );
 }

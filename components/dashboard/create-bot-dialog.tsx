@@ -1,6 +1,6 @@
 "use client";
 
-import { startTransition, useActionState, useEffect, useId, useRef, useState } from "react";
+import { startTransition, useActionState, useEffect, useId, useRef, useState, type ReactNode, type RefObject } from "react";
 import { useController, useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { PlusIcon } from "lucide-react";
@@ -130,7 +130,11 @@ function CreateBotForm({ avatarSeed, onCreated }: { avatarSeed: string; onCreate
   );
 }
 
-export function CreateBotDialog({ initialAvatarSeed }: { initialAvatarSeed?: string }) {
+export function CreateBotDialog({ initialAvatarSeed, trigger, finalFocus }: {
+  initialAvatarSeed?: string;
+  trigger?: ReactNode;
+  finalFocus?: RefObject<HTMLElement | null>;
+}) {
   const [open, setOpen] = useState(false);
   const [avatarSeed, setAvatarSeed] = useState<string | null>(null);
   const currentSeed = useRef<string | null>(null);
@@ -155,11 +159,11 @@ export function CreateBotDialog({ initialAvatarSeed }: { initialAvatarSeed?: str
 
   return (
     <Dialog open={open} onOpenChange={changeOpen}>
-      <DialogTrigger render={<CreepyButton />}>
+      {trigger ?? <DialogTrigger render={<CreepyButton />}>
         <PlusIcon data-icon="inline-start" />
         Create a new bot
-      </DialogTrigger>
-      <DialogContent className="dark dashboard-theme max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-lg">
+      </DialogTrigger>}
+      <DialogContent className="dark dashboard-theme max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-lg" finalFocus={finalFocus}>
         <CreatureMotionForeground>
           {avatarSeed && <CreateBotForm key={avatarSeed} avatarSeed={avatarSeed} onCreated={() => {
             if (currentSeed.current === avatarSeed) changeOpen(false);
