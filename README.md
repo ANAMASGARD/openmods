@@ -34,3 +34,17 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
 
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+
+## Database
+
+Neon Postgres is connected with Drizzle's HTTP driver. Keep `DATABASE_URL` in
+`.env.local` (ignored by Git). Never prefix it with `NEXT_PUBLIC_`.
+
+- `npm run db:check` runs a read-only connectivity query through Drizzle.
+- Define tables in `lib/db/schema.ts`.
+- `npm run db:generate` creates SQL migrations in `drizzle/` for review.
+- `npm run db:migrate` applies generated migrations to the configured database.
+- `npm run db:studio` opens Drizzle Studio locally.
+
+Server Components and server-side code can import `getDb` from `@/lib/db`.
+No application tables have been created yet. Auth0 remains the authentication provider.

@@ -33,3 +33,10 @@ Retain qualifying friction even if it is later fixed or worked around; record th
 Before the final response, run one reporting pass. If candidates remain, from this file's directory run `npx --no-install next internal agent-feedback-instructions` once without piping or truncating its output. Follow its output or error guidance. If a network sandbox blocks it, retry with network access; if it still returns no output, continue normally.
 
 <!-- END:nextjs-agent-feedback -->
+
+## Database
+
+This is a development project. There is no backward compatibility and the data is worthless. Prefer data loss. Never backfill, migrate, or preserve existing rows, and never spend effort on keeping old data working. Every schema change means a new, clean slate.
+
+- Apply schema changes only with npm run db:push (drizzle-kit push).
+- Never use migrations: do not run drizzle-kit generate or drizzle-kit migrate, and do not create migration files or a drizzle/ folder.

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { authLoginHref, authProviders } from "@/lib/auth-providers";
+import { AUTH_RETURN_TO, authLoginHref, authProviders } from "@/lib/auth-providers";
 import { ProviderIcon } from "@/components/provider-icon";
 import { OpenModsMark } from "@/components/landing/hero-content";
 import "./auth-screen.css";
@@ -36,7 +36,7 @@ export function AuthScreen({ mode }: AuthScreenProps) {
           <h1 id="auth-title">{isSignup ? "Sign up for OpenMods" : "Log in to OpenMods"}</h1>
           <form action="/auth/login" method="get" className="auth-email">
             <input type="hidden" name="connection" value={emailProvider.connection} />
-            <input type="hidden" name="returnTo" value="/" />
+            <input type="hidden" name="returnTo" value={AUTH_RETURN_TO} />
             {isSignup && <input type="hidden" name="screen_hint" value="signup" />}
             <label className="sr-only" htmlFor="auth-email">Email Address</label>
             <input id="auth-email" name="login_hint" type="email" autoComplete="email" placeholder="Email Address" required />

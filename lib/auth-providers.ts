@@ -1,3 +1,5 @@
+export const AUTH_RETURN_TO = "/dashboard";
+
 export const authProviders = [
   {
     id: "email",
@@ -34,7 +36,7 @@ export function authLoginHref(
 ) {
   const params = new URLSearchParams({
     connection,
-    returnTo: "/",
+    returnTo: AUTH_RETURN_TO,
   });
 
   if (mode === "signup") {
