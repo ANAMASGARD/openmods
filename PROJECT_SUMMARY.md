@@ -7,7 +7,9 @@ Last updated: 25 October 2026.
 OpenMods has an authenticated dashboard, bot management, a responsive chat interface,
 and a working Trigger.dev chat agent with transcript persistence. Local mocked checks
 and a real OpenAI/Trigger.dev streamed reply with reload persistence have passed.
-Production deployment and hosted authentication verification remain outstanding.
+Render deployment configuration and a [deployment runbook](./docs/render-deployment.md)
+are prepared. Production deployment and hosted authentication verification remain
+outstanding.
 
 ## Stack and architecture
 
@@ -56,7 +58,9 @@ and the stream cursor. The previous direct `/api/chat` route has been removed.
 - `trigger.config.ts` uses Node.js 24, `./src/trigger`, and a 60-second default maximum duration.
 - Exported `openmods-healthcheck` task successfully ran in development.
 - Exported `openmods-chat` agent uses default transcript storage, with a one-hour
-  run maximum and a 60-second per-turn timeout.
+  maximum active duration and a 60-second timeout waiting for the next message
+  after suspension. This is not a per-reply execution timeout. A later message
+  starts a continuation run using persisted history.
 - Server actions authorize session creation, token refresh, and history loading.
 - New-message validation rejects injected assistant/system history and unsupported content.
 - The worker resolves bot instructions from the database and sanitizes client-facing errors.
@@ -113,46 +117,32 @@ Do not put secret values in documentation or commit local environment files.
   reply once after reload. It used a synthetic local Auth0 session.
 - Disposable verification chats and sessions were cleaned up afterward.
 
-These are implementation-session results, not a claim that tests were rerun for this
-documentation update. Real hosted OAuth, production builds/deployments, and real
+These are earlier chat-implementation results, not a claim that tests were rerun
+for Render preparation. Real hosted OAuth, production deployment, and real
 microphone permissions/devices still need verification.
 
 ## Git state
 
-- Current branch: `main`.
-- Latest existing commit: `08537b0` — `Add chat experience, bot management, and Trigger.dev setup`.
-- That earlier work was committed with sign-off and pushed when requested.
-- The subsequent persistent chat-agent migration and this summary are currently
-  uncommitted. No branch, commit, or push was created for this documentation update.
+The persistent chat-agent migration is in commit `a47ed5d`,
+`Migrate chat to Trigger.dev with persistent transcripts`. Render preparation is
+left uncommitted on the current branch. Use `git status` and `git log -1` for the
+live repository state; no branch, commit, or push is part of deployment preparation.
 
 ## Deployment recommendation and remaining work
 
-Recommended architecture: **Vercel for Next.js, Trigger.dev Cloud for tasks,
-Neon for Postgres, and Auth0 for authentication**. This is a recommendation;
-production deployment has not been completed.
+Selected architecture: **one paid Render web service for Next.js, Trigger.dev Cloud
+for tasks and transcripts, Neon for Postgres, and Auth0 for authentication**.
+The `0.5c-512mb` instance avoids inactivity sleep with a base compute cost of about
+$7/month. Hosting remains billable while idle. No cron, Render worker, database,
+Redis instance, or persistent disk is added.
 
-Vercel offers native Next.js deployment and managed framework features. Render is
-also compatible as a Node.js web service and is a reasonable alternative when
-explicit server/container control is a priority. This app needs server-side logic,
-so a static export is not appropriate.
+`render.yaml`, the production startup check, and `/healthz` prepare the app for
+native Node hosting. Existing local commands and chat behavior remain intact.
+The project requires server-side rendering and actions, so static export is not
+appropriate.
 
-Before launch:
-
-1. Run a production build and confirm compatibility of the current Next.js settings.
-2. Configure production environment variables and the deployed Auth0 base URL,
-   callback URLs, and logout URLs.
-3. Deploy `openmods-chat` and `openmods-healthcheck` to Trigger.dev production;
-   configure the worker's database, OpenAI key, and `OPENAI_CHAT_MODEL=gpt-6-luna`.
-4. Use a production Trigger key for the deployed app. The local development worker
-   is not the production runtime.
-5. Verify real sign-in, owned-chat access, streaming, stop/retry, and reload history
-   on the deployed application.
-6. Set up coordinated app/task deployments. The documented Trigger/Vercel automatic
-   integration currently requires GitHub; this project's GitLab repository needs
-   a separate CLI/CI deployment path unless repository hosting changes.
-
-Sources checked for the hosting recommendation:
-
-- [Next.js on Vercel](https://vercel.com/docs/frameworks/full-stack/nextjs)
-- [Next.js on Render](https://render.com/docs/deploy-nextjs-app)
-- [Trigger.dev Vercel integration and GitHub requirement](https://trigger.dev/changelog/vercel-integration)
+Follow the [Render deployment runbook](./docs/render-deployment.md) when publishing.
+Deploy the Trigger.dev production worker, configure Auth0 for the actual HTTPS
+origin, then complete the hosted acceptance checklist. Render and Trigger deploy
+separately; pushing to GitLab does not itself deploy the Trigger worker.
+The repository configuration is not evidence of a live deployment.

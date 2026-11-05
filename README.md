@@ -1,27 +1,25 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# OpenMods
+
+OpenMods is a Next.js application with Auth0 sign-in, Neon Postgres, and
+Trigger.dev chat agents. It is configured to run as one Node.js web service on Render.
 
 See [Project summary](./PROJECT_SUMMARY.md) for completed work, architecture,
 verification results, current Git state, and deployment next steps.
 
 ## Getting Started
 
-First, run the development server:
+Use Node.js 24 and npm. Install the locked dependencies, then run the development server:
 
 ```bash
+npm ci
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to optimize and load Geist fonts.
 
 ## Learn More
 
@@ -32,11 +30,25 @@ To learn more about Next.js, take a look at the following resources:
 
 You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
 
-## Deploy on Vercel
+## Deploy on Render
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+The [Render deployment guide](./docs/render-deployment.md) covers GitLab connection,
+production secrets, Auth0 URLs, the separate Trigger.dev production deployment,
+verification, and recovery. The checked-in `render.yaml` prepares one paid
+`0.5c-512mb` web service with one instance and automatic previews disabled.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Render builds with `npm ci --include=dev && npm run build` and starts with
+`npm run start:render`. The startup check validates the production environment
+before Next.js binds to `0.0.0.0` on Render's `PORT`. `GET /healthz` checks the web
+process without contacting Auth0, Neon, Trigger.dev, or OpenAI.
+
+The paid service avoids idle spin-down and currently costs about **$7/month** for
+base compute, including idle time. No keep-alive cron is needed. AI usage and
+external services are separate, and bandwidth/build overages can add costs.
+Configuration in this repository does not mean the app has been deployed.
+
+Run `npm run test:render` to check startup validation and the health endpoint's
+Auth0 middleware exclusion without contacting external services.
 
 ## Persistent sign-in
 
@@ -84,7 +96,7 @@ Postgres supplies `created_at` with `now()` when omitted.
 ## AI chat
 
 Chat pages use AI SDK 7, AI Elements, and the `openmods-chat` Trigger.dev agent.
-Add these server-only settings to `.env.local` and restart the dev server:
+Add these server-only settings to `.env.local` and restart the Trigger.dev worker:
 
 ```dotenv
 OPENAI_API_KEY=your-openai-api-key
@@ -111,12 +123,15 @@ validation, and the agent’s persistence, regeneration, error, and stop behavio
 
 The project is linked to `proj_yyokorioekbldyziwkwb`. Tasks live in `src/trigger/`
 and use `@trigger.dev/sdk`. `trigger.config.ts` selects Node.js 24 and caps task
-runs at 60 seconds by default. The chat agent allows a one-hour run with a
-60-second per-turn timeout. The SDK, build package, and development CLI use
-version 4.8.1.
+runs at 60 seconds by default. The chat agent has a one-hour maximum active run
+duration. Its `turnTimeout: "60s"` controls waiting for the next message after
+suspension, not the time allowed to generate a reply. A later message starts a
+continuation run that restores the saved conversation. The default 30-second idle
+window after a turn uses compute; suspended time does not. The SDK, build package,
+and development CLI use version 4.8.1.
 
-Sign in once with `npx trigger.dev@latest login`. Put the project's **development**
-secret key in the Git-ignored `.env` file:
+Sign in once with `npx trigger.dev@4.8.1 login`. Put the project's **development**
+secret key in the Git-ignored `.env.local` file:
 
 ```dotenv
 TRIGGER_SECRET_KEY=your-development-secret-key
@@ -141,6 +156,9 @@ npx trigger.dev@4.8.1 tasks trigger openmods-healthcheck --env dev --wait --time
 Keep the development worker running to execute development tasks. The chat worker
 also needs `DATABASE_URL`, `OPENAI_API_KEY`, and optionally `OPENAI_CHAT_MODEL`.
 `npm run dev:trigger` loads `.env.local`, including `OPENAI_CHAT_MODEL`; restart
-the worker after changing it. Configure the same server-only variables in Trigger.dev for deployment. Export every
+the worker after changing it. Production needs a deployed Trigger.dev worker;
+keeping this local process open is not a production deployment. See the
+[production setup](./docs/render-deployment.md#deploy-the-triggerdev-worker) for
+worker variables and the production key used by Render. Export every
 task, use built-in `fetch`, and call `wait.*`, `triggerAndWait`, and
 `batchTriggerAndWait` sequentially rather than putting them in `Promise.all`.
