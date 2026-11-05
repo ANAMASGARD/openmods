@@ -42,9 +42,15 @@ Neon Postgres is connected with Drizzle's HTTP driver. Keep `DATABASE_URL` in
 
 - `npm run db:check` runs a read-only connectivity query through Drizzle.
 - Define tables in `lib/db/schema.ts`.
-- `npm run db:generate` creates SQL migrations in `drizzle/` for review.
-- `npm run db:migrate` applies generated migrations to the configured database.
+- `npm run db:push` applies the schema directly to the development database.
+- Treat development data as disposable; do not generate migrations or backfill rows.
 - `npm run db:studio` opens Drizzle Studio locally.
 
 Server Components and server-side code can import `getDb` from `@/lib/db`.
-No application tables have been created yet. Auth0 remains the authentication provider.
+The `bots` table stores an indexed Auth0 user ID, name, avatar seed, job,
+optional instructions and sandbox ID, and a creation timestamp. Auth0 remains
+the authentication provider; external user and sandbox IDs have no local foreign keys.
+
+Drizzle generates Nano IDs for `id` and `avatar` when omitted during inserts.
+These are application defaults, so raw SQL inserts must supply both values.
+Postgres supplies `created_at` with `now()` when omitted.
