@@ -13,6 +13,27 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 - Never create branches, worktrees, or commits automatically. Only do so when the user explicitly asks for that specific action in the current request.
 - Leave changes uncommitted in the working tree on the current branch and let the user decide when and how to commit.
 
+## Authentication
+
+- Use Auth0 (`@auth0/nextjs-auth0`) throughout OpenMods, including bot creation. Do not add Clerk or copy Clerk authentication from tutorial screenshots.
+- Resolve bot ownership on the server from `auth0.getSession().user.sub`; never accept a browser-supplied user ID.
+
+## Forms and creation dialogs
+
+- Derive database insert validation from the Drizzle table with `createInsertSchema` from the installed, compatible `drizzle-zod` package. See `lib/db/bot-validation.ts`; do not upgrade Drizzle just to follow a tutorial's newer import path.
+- Share field rules, limits, and messages between client and server. Keep browser-safe Zod schemas in modules such as `lib/bot-form-schema.ts`, separate from database clients and server credentials.
+- Use React Hook Form with `zodResolver`. Connect controlled Base UI inputs through `Controller` or `useController`, and use `setValue` for preset changes so validation and dirty state stay consistent.
+- Compose forms from the existing shadcn/Base UI `Dialog`, `FieldGroup`, `Field`, `FieldLabel`, `FieldError`, input, and button components. Use `ToggleGroup` for role presets and `render` for custom Base UI triggers.
+- Validate again inside the server action, regardless of client validation. Authenticate with Auth0 before writing, allowlist editable fields, and assign ownership and generated fields on the server. Reject file values and duplicate scalar fields rather than silently selecting a value.
+- Keep server mutations in server actions. Use `useActionState` for pending/results and `startTransition` when dispatching manually after React Hook Form validation. Prevent duplicate submissions and disable editing and presets while a save is pending.
+- Show field errors inline with `aria-invalid` and `aria-describedby`, focus the first invalid field, and map server field errors back into the form. Show general save failures in an `Alert`; never expose raw database errors.
+- Preserve entered values and the preview avatar seed through validation failures and retries. Close the dialog and refresh the dashboard only after a successful save. A late response from an earlier dialog must not close a newly opened dialog.
+- The creation popup shows one small avatar matching the dashboard selection. Keep avatar selection on the dashboard; do not add a second carousel or shuffle control to the popup. Avatar greeting buttons must not submit the form.
+- Keep normal desktop and small-phone layouts compact enough to show fields and action buttons without dialog scrolling. Retain overflow access for short viewports, keyboards, and validation messages; do not hide inaccessible content to remove a scrollbar. Preserve dialog focus trapping, Escape dismissal, and focus return.
+- Use developer and GitLab workflow role presets from `lib/bot-presets.ts`. Presets fill editable jobs and starter instructions while preserving the name, avatar, and customized instructions. Do not present configured roles as connected or executing integrations.
+- For changes to validation or submission behavior, verify invalid input, server rejection, retries, pending state, authenticated ownership, and saved values. For layout changes, inspect desktop/mobile fit and keyboard access. Reuse the existing focused tests and browser checks; distinguish synthetic local-session checks from real Auth0 OAuth testing.
+- Form validation changes alone do not require database schema changes or `db:push`. Follow the Database rules below when a table actually changes.
+
 <!-- BEGIN:nextjs-agent-feedback -->
 
 ## Report Next.js feedback

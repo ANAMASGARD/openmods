@@ -1,34 +1,26 @@
-export const BOT_LIMITS = { name: 80, job: 240, instructions: 4000 } as const;
-export const AVATAR_SEED_LENGTH = 21;
+import { botCreateSchema } from "./db/bot-validation";
+import type { BotInputErrors } from "./bot-form-schema";
 
-export type BotField = keyof typeof BOT_LIMITS;
-export type BotInputErrors = Partial<Record<BotField | "avatar", string>>;
+export { AVATAR_SEED_LENGTH, BOT_LIMITS } from "./bot-form-schema";
+export type { BotField, BotInputErrors } from "./bot-form-schema";
 
 export function parseBotInput(formData: FormData) {
-  const values = { name: "", job: "", instructions: "", avatar: "" };
+  const fields = ["name", "job", "instructions", "avatar"] as const;
+  const input: Record<string, unknown> = {};
   const errors: BotInputErrors = {};
 
-  for (const field of Object.keys(BOT_LIMITS) as BotField[]) {
-    const value = formData.get(field);
-    if (value !== null && typeof value !== "string") {
-      errors[field] = "Enter text for this field.";
-      continue;
-    }
-    values[field] = (value ?? "").trim();
-    if (field !== "instructions" && !values[field]) {
-      errors[field] = field === "name" ? "Give your bot a name." : "Describe your bot’s job.";
-    } else if (values[field].length > BOT_LIMITS[field]) {
-      errors[field] = `Use ${BOT_LIMITS[field]} characters or fewer.`;
-    }
+  for (const field of fields) {
+    const entries = formData.getAll(field);
+    input[field] = entries.length > 1 ? entries : entries[0] ?? "";
   }
 
-  const avatars = formData.getAll("avatar");
-  const avatar = avatars[0];
-  if (avatars.length !== 1 || typeof avatar !== "string" || avatar.length !== AVATAR_SEED_LENGTH || /[^A-Za-z0-9_-]/.test(avatar)) {
-    errors.avatar = "We couldn’t verify your bot’s avatar. Please reopen this dialog and try again.";
-  } else {
-    values.avatar = avatar;
+  const result = botCreateSchema.safeParse(input);
+  if (result.success) return { values: result.data, errors, valid: true };
+
+  for (const issue of result.error.issues) {
+    const field = issue.path[0] as keyof BotInputErrors;
+    if (fields.includes(field)) errors[field] ??= issue.message;
   }
 
-  return { values, errors, valid: Object.keys(errors).length === 0 };
+  return { values: { name: "", job: "", instructions: "", avatar: "" }, errors, valid: false };
 }

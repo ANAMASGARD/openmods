@@ -1,4 +1,4 @@
-import { AVATAR_SEED_LENGTH } from "../bot-input";
+import { AVATAR_SEED_LENGTH } from "../bot-form-schema";
 import {
   AVAILABLE_CREATURE_IDS,
   CREATURE_VARIANTS,

@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { AVATAR_SEED_LENGTH, BOT_LIMITS, parseBotInput } from "../lib/bot-input";
+import { botFormSchema } from "../lib/bot-form-schema";
+import { botCreateSchema, botInsertSchema } from "../lib/db/bot-validation";
 
 const avatar = "aB0_-".repeat(4) + "Z";
 
@@ -79,4 +81,32 @@ test("rejects duplicate avatar fields instead of choosing an ambiguous identity"
   const result = parseBotInput(data);
   assert.equal(result.valid, false);
   assert(result.errors.avatar);
+});
+
+test("rejects duplicate editable fields rather than silently taking the first value", () => {
+  for (const field of Object.keys(BOT_LIMITS)) {
+    const data = form({ name: "Atlas", job: "Node.js developer", instructions: "Add tests." });
+    data.append(field, "Unexpected second value");
+    const result = parseBotInput(data);
+    assert.equal(result.valid, false);
+    assert(result.errors[field as keyof typeof result.errors]);
+  }
+});
+
+test("Drizzle insert validation requires ownership while public input excludes protected columns", () => {
+  const editable = { name: "Atlas", job: "Node.js developer", instructions: "Add tests.", avatar };
+  const protectedFields = { userId: "forged-owner", id: "forged-id", sandboxId: "forged-sandbox", createdAt: new Date() };
+  assert.deepEqual(botCreateSchema.parse({ ...editable, ...protectedFields }), editable);
+  assert.equal(botInsertSchema.safeParse({ name: "Atlas", job: "Developer" }).success, false);
+  assert.equal(botInsertSchema.safeParse({ userId: "auth0|verified", name: "Atlas", job: "Developer", instructions: null }).success, true);
+});
+
+test("browser and server validation share trimming and required-field rules", () => {
+  const values = { name: "  Atlas  ", job: " Node.js developer ", instructions: "  Add tests.  " };
+  assert.deepEqual(parseBotInput(form(values)).values, { ...botFormSchema.parse(values), avatar });
+  for (const field of ["name", "job"] as const) {
+    const invalid = { ...values, [field]: "  " };
+    assert.equal(botFormSchema.safeParse(invalid).success, false);
+    assert.equal(parseBotInput(form(invalid)).valid, false);
+  }
 });

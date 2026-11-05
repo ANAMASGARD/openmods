@@ -3,6 +3,7 @@ import { chromium } from "playwright";
 import { neon } from "@neondatabase/serverless";
 import { decrypt } from "../node_modules/@auth0/nextjs-auth0/dist/server/cookies.js";
 import { createPreviewContext } from "./creature-preview-session.mjs";
+import { BOT_PRESETS } from "../lib/bot-presets.ts";
 
 // This intentionally uses local synthetic sessions and the configured development
 // database. It does not exercise the real OAuth login provider.
@@ -33,7 +34,7 @@ async function setup() {
 }
 
 async function rows(owner) {
-  return sql`SELECT id, user_id, name, job, avatar, sandbox_id FROM bots WHERE user_id = ${owner} ORDER BY created_at`;
+  return sql`SELECT id, user_id, name, job, instructions, avatar, sandbox_id FROM bots WHERE user_id = ${owner} ORDER BY created_at`;
 }
 
 async function openDialog(page) {
@@ -65,6 +66,10 @@ async function addFields(dialog, values) {
 try {
   const first = await setup();
   const { page, owner } = first;
+  let actionRequests = 0;
+  page.on("request", (request) => {
+    if (request.method() === "POST" && request.headers()["next-action"]) actionRequests += 1;
+  });
   assert.equal((await rows(owner)).length, 0);
   const welcome = page.locator("main [data-creature]");
   const welcomeSelector = page.locator("main [data-creature-selector]");
@@ -94,7 +99,17 @@ try {
   assert.equal(await dialog.locator("[data-creature]").getAttribute("data-creature"), "cloud-bat", "reopening follows the latest dashboard selection");
   assert.equal(await dialog.locator("[data-creature]").getAttribute("data-creature-variant"), nextWelcomeVariant);
   await dialog.getByLabel("Name", { exact: true }).fill("A name to keep");
+  for (const preset of BOT_PRESETS) {
+    const button = dialog.getByRole("button", { name: preset.label, exact: true });
+    await button.click();
+    assert.equal(await button.getAttribute("aria-pressed"), "true");
+    assert.equal(await dialog.getByLabel("What’s their job?", { exact: true }).inputValue(), preset.job);
+    assert.equal(await dialog.getByLabel("Instructions (optional)", { exact: true }).inputValue(), preset.instructions);
+    assert.equal(await dialog.getByLabel("Name", { exact: true }).inputValue(), "A name to keep");
+    assert.equal(await dialog.locator("input[name='avatar']").inputValue(), seed);
+  }
   await dialog.getByLabel("What’s their job?", { exact: true }).fill("Check avatar identity");
+  assert.equal(await dialog.locator("[data-slot='toggle-group-item'][aria-pressed='true']").count(), 0, "a custom job clears the preset highlight");
   await dialog.getByLabel("Instructions (optional)", { exact: true }).fill("Keep these instructions through retries.");
   await dialog.getByRole("button", { name: "Your new bot’s avatar. Say hello", exact: true }).click();
   assert.equal(await dialog.locator("input[name='avatar']").inputValue(), seed, "greeting cannot change the selected identity");
@@ -108,9 +123,12 @@ try {
   };
   await dialog.getByLabel("Name", { exact: true }).fill("   ");
   await dialog.getByLabel("What’s their job?", { exact: true }).fill("Check avatar identity");
+  const requestsBeforeInvalidSubmit = actionRequests;
   await dialog.getByRole("button", { name: "Create bot", exact: true }).click();
   await dialog.getByText("Give your bot a name.", { exact: true }).waitFor();
-  assert.equal(await dialog.locator("input[name='avatar']").inputValue(), seed, "server validation must retain the preview seed");
+  assert.equal(actionRequests, requestsBeforeInvalidSubmit, "client validation blocks invalid submissions before a server request");
+  assert.ok(await dialog.getByLabel("Name", { exact: true }).evaluate((element) => element === document.activeElement), "invalid submission focuses the first invalid field");
+  assert.equal(await dialog.locator("input[name='avatar']").inputValue(), seed, "validation must retain the preview seed");
   assert.equal((await rows(owner)).length, 0, "invalid form must not create a row");
   assert.equal(await preview.getAttribute("data-creature"), identity.species);
   assert.equal(await preview.getAttribute("data-creature-variant"), identity.variant);
@@ -118,12 +136,25 @@ try {
   assert.equal(await dialog.getByLabel("Instructions (optional)", { exact: true }).inputValue(), "Keep these instructions through retries.", "validation retains instructions");
 
   await dialog.getByLabel("Name", { exact: true }).fill("Avatar persistence check");
+  await dialog.getByText("Give your bot a name.", { exact: true }).waitFor({ state: "hidden" });
+  await addFields(dialog, { job: "Injected duplicate job" });
+  await dialog.getByRole("button", { name: "Create bot", exact: true }).click();
+  await dialog.getByText("Enter text for this field.", { exact: true }).waitFor();
+  assert.ok(actionRequests > requestsBeforeInvalidSubmit, "the server independently rejects invalid form payloads");
+  assert.equal((await rows(owner)).length, 0);
+  assert.equal(await dialog.locator("input[name='avatar']").inputValue(), seed);
+  await dialog.locator("[data-test-field='true']").evaluateAll((inputs) => inputs.forEach((input) => input.remove()));
+  await dialog.getByLabel("What’s their job?", { exact: true }).fill("Check validated job");
+  await dialog.getByText("Enter text for this field.", { exact: true }).waitFor({ state: "hidden" });
   await addFields(dialog, { avatar: "invalid", userId: "forged-owner", sandboxId: "forged-sandbox" });
   await dialog.getByRole("button", { name: "Create bot", exact: true }).click();
   await dialog.getByText("We couldn’t verify your bot’s avatar. Please reopen this dialog and try again.", { exact: true }).waitFor();
   assert.equal((await rows(owner)).length, 0, "ambiguous avatar input cannot create a row");
   await dialog.locator("[data-test-field='true']").evaluateAll((inputs) => inputs.forEach((input) => input.remove()));
   assert.equal(await dialog.locator("input[name='avatar']").inputValue(), seed, "failed retry keeps the original seed");
+  const nodePreset = BOT_PRESETS.find((preset) => preset.id === "nodejs");
+  await dialog.getByRole("button", { name: nodePreset.label, exact: true }).click();
+  assert.equal(await dialog.getByLabel("Instructions (optional)", { exact: true }).inputValue(), "Keep these instructions through retries.", "switching roles preserves customized instructions");
   let releaseSubmission;
   const submissionGate = new Promise((resolve) => { releaseSubmission = resolve; });
   await page.route("**/dashboard", async (route) => {
@@ -133,7 +164,7 @@ try {
   try {
     await dialog.getByRole("button", { name: "Create bot", exact: true }).click();
     await dialog.locator("form[aria-busy='true']").waitFor();
-    const fields = dialog.locator("input:not([type='hidden']), textarea, button[type='submit']");
+    const fields = dialog.locator("input:not([type='hidden']), textarea, button[type='submit'], [data-slot='toggle-group-item']");
     assert.ok(await fields.evaluateAll((controls) => controls.every((control) => control.disabled)), "form editing is locked while submission is pending");
     assert.equal(await dialog.locator("input[name='avatar']").inputValue(), seed);
     assert.equal(await preview.getAttribute("data-creature"), identity.species);
@@ -147,6 +178,8 @@ try {
   assert.equal(saved[0].avatar, seed, "database must persist the exact preview seed");
   assert.equal(saved[0].user_id, owner);
   assert.equal(saved[0].sandbox_id, null);
+  assert.equal(saved[0].job, nodePreset.job, "the selected developer role is persisted");
+  assert.equal(saved[0].instructions, "Keep these instructions through retries.");
   const portrait = page.getByRole("img", { name: "Avatar persistence check avatar", exact: true });
   assert.equal(await portrait.getAttribute("data-creature"), identity.species);
   assert.equal(await portrait.getAttribute("data-creature-variant"), identity.variant);
