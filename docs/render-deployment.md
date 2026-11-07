@@ -95,7 +95,7 @@ updated environment; later Blueprint syncs do not prompt for them.
 The local `npm run dev:trigger` process is only for development. The Render build
 does not deploy Trigger tasks. For releases that change tasks, deploy a compatible
 worker version before releasing the web change, using the same source revision.
-Render auto-deploys from GitLab do not replace this step.
+Render auto-deploys from GitHub do not replace this step.
 [Trigger.dev deployment documentation](https://trigger.dev/docs/deployment/overview)
 
 The current `turnTimeout: "60s"` limits waiting for the next message after the
@@ -105,12 +105,11 @@ one-hour `maxDuration` is a separate active-compute limit.
 
 ## Create the Render service and configure Auth0
 
-1. Review the changes and publish them to the intended GitLab branch when ready.
+1. Review the changes and publish them to the intended GitHub branch when ready.
    Render must be able to read that branch's `render.yaml`. Do not upload local
    environment files.
-2. Connect GitLab under Render Account Settings → Git Deployment Credentials and
-   grant access to this repository. GitLab Maintainer or Owner permissions are
-   needed for automatic deploys. [Git provider setup](https://render.com/docs/git-provider)
+2. Connect GitHub in Render and grant its GitHub integration access to
+   `ANAMASGARD/openmods`. Select the `main` branch. [Git provider setup](https://render.com/docs/git-provider)
 3. Create a **Blueprint** from that repository and branch. Review the one paid
    web service and secret prompts before applying. The Blueprint uses Render's
    default Oregon region; to place the service nearer the existing Neon database,

@@ -144,5 +144,5 @@ appropriate.
 Follow the [Render deployment runbook](./docs/render-deployment.md) when publishing.
 Deploy the Trigger.dev production worker, configure Auth0 for the actual HTTPS
 origin, then complete the hosted acceptance checklist. Render and Trigger deploy
-separately; pushing to GitLab does not itself deploy the Trigger worker.
+separately; pushing to GitHub does not itself deploy the Trigger worker.
 The repository configuration is not evidence of a live deployment.
