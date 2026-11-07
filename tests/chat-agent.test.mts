@@ -42,7 +42,29 @@ process.env.OPENAI_API_KEY = "mock-key";
 const { openmodsChat } = await import("../src/trigger/chat");
 const user = (id: string, text: string): UIMessage => ({ id, role: "user", parts: [{ type: "text", text }] });
 
+test("image bytes reach the model and survive storage, continuation and retry", { timeout: 20000 }, async () => {
+  const image = { type: "file" as const, mediaType: "image/png", filename: "pixel.png", url: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/l9sAAAAASUVORK5CYII=" };
+  let harness = mockChatAgent(openmodsChat, { chatId: "chat-image", clientData: { style: "balanced" } });
+  try {
+    await harness.sendMessage({ ...user("image-user", "What is in this image?"), parts: [...user("unused", "What is in this image?").parts, image] });
+    const prompt = prompts.at(-1) as { role: string; content: { type: string; mediaType?: string; data?: string }[] }[];
+    const file = prompt.find(message => message.role === "user")?.content.find(part => part.type === "file");
+    assert.equal(file?.mediaType, "image/png");
+    assert.equal(file?.data, image.url.split(",")[1]);
+    await harness.close();
+    const snapshot = harness.getSnapshot();
+    assert.ok(snapshot?.messages.some(entry => entry.message.parts.some(part => part.type === "file" && part.url === image.url)));
+    harness = mockChatAgent(openmodsChat, { chatId: "chat-image", clientData: { style: "balanced" }, snapshot, continuation: true });
+    await harness.sendRegenerate();
+    await harness.close();
+    assert.equal(harness.getSnapshot()?.messages.filter(entry => entry.message.role === "user").length, 1);
+    const retry = prompts.at(-1) as typeof prompt;
+    assert.ok(retry.some(message => message.role === "user" && message.content.some(part => part.type === "file")));
+  } finally { await harness.close(); }
+});
+
 test("agent streams, persists, resumes context and regenerates without duplicating questions", { timeout: 20000 }, async () => {
+  prompts.length = 0;
   let harness = mockChatAgent(openmodsChat, { chatId: "chat-a", clientData: { style: "concise", instructions: "forged" } });
   try {
     const first = await harness.sendMessage(user("u1", "Remember this question"));

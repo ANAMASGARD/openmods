@@ -2,6 +2,10 @@ import { withSentryConfig } from "@sentry/nextjs/config";
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // Browser checks use a separate build directory and leave the user's dev server running.
+  distDir: process.env.OPENMODS_NEXT_DIST_DIR || ".next",
+  // Daytona loads Node multipart/stream modules with runtime require().
+  serverExternalPackages: ["@daytona/sdk"],
   devIndicators: false,
   env: { NEXT_PUBLIC_SENTRY_RELEASE: process.env.SENTRY_RELEASE ?? process.env.RENDER_GIT_COMMIT ?? '', NEXT_PUBLIC_OPENMODS_ENV: process.env.OPENMODS_ENV ?? 'development' },
   experimental: {

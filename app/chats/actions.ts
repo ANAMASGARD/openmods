@@ -11,7 +11,8 @@ const loadTranscript = chat.createLoadTranscriptAction(defaultStorage);
 async function requireChatOwner(input: unknown) {
   try {
     const chatId = chatIdSchema.parse(input);
-    if (await getUserChat(chatId)) return chatId;
+    const owned = await getUserChat(chatId);
+    if (owned) return owned;
   } catch {
     // Do not return database errors or validation details to the browser.
   }
@@ -26,10 +27,10 @@ function mintToken(chatId: string) {
 }
 
 export async function startChatSession(input: { chatId: string; recipientId?: string }) {
-  const chatId = await requireChatOwner(input?.chatId);
+  const owned = await requireChatOwner(input?.chatId);
+  const chatId = owned.id;
   try {
     if (input.recipientId) {
-      const owned = await getUserChat(chatId);
       if (!owned?.members.some(member => member.id === input.recipientId)) throw new Error("Invalid recipient");
     }
     return await startSession({ chatId, clientData: { style: "balanced", ...(input.recipientId ? { recipientId: input.recipientId } : {}) } });
@@ -39,7 +40,7 @@ export async function startChatSession(input: { chatId: string; recipientId?: st
 }
 
 export async function mintChatAccessToken(input: string) {
-  const chatId = await requireChatOwner(input);
+  const { id: chatId } = await requireChatOwner(input);
   try {
     return await mintToken(chatId);
   } catch {
@@ -48,7 +49,7 @@ export async function mintChatAccessToken(input: string) {
 }
 
 export async function loadChatHistory(input: string) {
-  const chatId = await requireChatOwner(input);
+  const { id: chatId } = await requireChatOwner(input);
   const transcript = await loadTranscript({ chatId });
   // Hydrate only existing conversations; opening an empty chat must not start a run.
   return {

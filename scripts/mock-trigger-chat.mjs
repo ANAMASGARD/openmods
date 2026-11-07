@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 // Local protocol fixture; never contacts Trigger.dev or a model provider.
 export async function createMockTriggerChat(baseUrl) {
   const histories = new Map(), pending = new Map(), streams = new Map();
+  const staleSnapshots = new Map();
   const requests = [], timers = new Set();
   let mode = "reply", seq = 0;
   const token = `e30.${Buffer.from(JSON.stringify({ exp: Math.floor(Date.now() / 1000) + 3600 })).toString("base64url")}.test`;
@@ -19,7 +20,11 @@ export async function createMockTriggerChat(baseUrl) {
     if (url.pathname.startsWith("/snapshot/")) {
       const history = histories.get(url.pathname.slice(10));
       if (!history) { res.writeHead(404); res.end(); return; }
-      return json({ version: 2, savedAt: Date.now(), messages: history.map(message => ({ id: message.id, final: true, message })), state: null, lastOutEventId: String(seq) });
+      const chatId = url.pathname.slice(10);
+      const stale = staleSnapshots.get(chatId) ?? 0;
+      if (stale) staleSnapshots.set(chatId, stale - 1);
+      const visible = stale && history.at(-1)?.role === "assistant" ? history.slice(0, -1) : history;
+      return json({ version: 2, savedAt: Date.now(), messages: visible.map(message => ({ id: message.id, final: true, message })), state: null, lastOutEventId: String(seq) });
     }
     if (url.pathname.endsWith("/auth/jwt/claims")) return json({});
     if (url.pathname === "/api/v1/sessions") return json({ id: `session_${body.externalId}`, externalId: body.externalId, type: "chat", taskIdentifier: "openmods-chat", tags: [], metadata: null, closedAt: null, closedReason: null, expiresAt: null, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), runId: "run_test", publicAccessToken: token, isCached: histories.has(body.externalId) });
@@ -69,5 +74,5 @@ export async function createMockTriggerChat(baseUrl) {
   });
   await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
   const origin = `http://127.0.0.1:${server.address().port}`;
-  return { origin, requests, histories, reset() { histories.clear(); streams.clear(); pending.clear(); }, set mode(value) { mode = value; }, async close() { for (const timer of timers) clearTimeout(timer); server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); } };
+  return { origin, requests, histories, delaySnapshot(chatId, reads) { staleSnapshots.set(chatId, reads); }, reset() { histories.clear(); streams.clear(); pending.clear(); staleSnapshots.clear(); }, set mode(value) { mode = value; }, async close() { for (const timer of timers) clearTimeout(timer); server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); } };
 }

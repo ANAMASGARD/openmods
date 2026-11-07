@@ -5,6 +5,7 @@ import { openSync } from "node:fs";
 import { createMockTriggerChat } from "./mock-trigger-chat.mjs";
 import { neon } from "@neondatabase/serverless";
 import { chromium } from "playwright";
+import sharp from "sharp";
 import { decrypt } from "../node_modules/@auth0/nextjs-auth0/dist/server/cookies.js";
 import { createPreviewContext } from "./creature-preview-session.mjs";
 
@@ -20,7 +21,7 @@ const botId = randomUUID(), chatId = randomUUID();
 let sql;
 const mock = await createMockTriggerChat(baseUrl);
 const requests = mock.requests;
-const next = spawn(process.execPath, ["node_modules/next/dist/bin/next", process.env.OPENMODS_BROWSER_BUILD ? "start" : "dev", "--port", new URL(baseUrl).port || "3000"], { env: { ...process.env, TRIGGER_API_URL: mock.origin, TRIGGER_SECRET_KEY: "tr_dev_test_only_not_a_real_key" }, stdio: ["ignore", openSync("/tmp/openmods-chat-browser-next.log", "w"), openSync("/tmp/openmods-chat-browser-next-errors.log", "w")] });
+const next = spawn(process.execPath, ["node_modules/next/dist/bin/next", process.env.OPENMODS_BROWSER_BUILD ? "start" : "dev", "--port", new URL(baseUrl).port || "3000"], { env: { ...process.env, OPENMODS_NEXT_DIST_DIR: process.env.OPENMODS_NEXT_DIST_DIR || ".next-chat-check", TRIGGER_API_URL: mock.origin, TRIGGER_SECRET_KEY: "tr_dev_test_only_not_a_real_key" }, stdio: ["ignore", openSync("/tmp/openmods-chat-browser-next.log", "w"), openSync("/tmp/openmods-chat-browser-next-errors.log", "w")] });
 for (let attempt = 0; attempt < 90; attempt++) {
   if (next.exitCode !== null) { await mock.close(); await browser.close(); throw new Error("The test Next.js server could not start. See /tmp/openmods-chat-browser-next-errors.log."); }
   try { await fetch(baseUrl); break; } catch { await new Promise(resolve => setTimeout(resolve, 1000)); }
@@ -107,6 +108,7 @@ try {
     window.webkitSpeechRecognition = undefined;
   });
   const errors = []; page.on("pageerror", (error) => errors.push(error.message));
+  page.on("console", message => { if (/Cannot update a component|THREE\.Clock/.test(message.text())) errors.push(message.text()); });
   await page.addInitScript((origin) => {
     const originalFetch = window.fetch;
     window.fetch = (input, init) => originalFetch(typeof input === "string" && input.startsWith("https://api.trigger.dev/") ? input.replace("https://api.trigger.dev", origin) : input, init);
@@ -302,10 +304,69 @@ try {
   assert.equal(await page.getByRole("button", { name: "Dictate message", exact: true }).getAttribute("aria-pressed"), "false", "returning to a preserved chat resets the microphone UI");
   assert.equal(await input.inputValue(), "Keep this follow-up draft", "navigation preserves the draft without restarting dictation");
   assert.ok(await page.evaluate(() => window.speechSessions.every((session) => session.aborted)), "returning never resumes recording automatically");
+  // Images use the same composer and survive transcript reloads and retries.
+  await input.fill("");
+  const png = await sharp({ create: { width: 600, height: 400, channels: 3, background: "#00aa55" } }).png().toBuffer();
+  const upload = page.getByLabel("Upload files", { exact: true });
+  const imageFile = { name: "green.png", mimeType: "image/png", buffer: png };
+  await page.getByRole("button", { name: "Starter prompts", exact: true }).click();
+  const chooser = page.waitForEvent("filechooser");
+  await page.getByRole("menuitem", { name: "Add photos", exact: true }).click();
+  await (await chooser).setFiles(imageFile);
+  await page.getByRole("img", { name: "green.png", exact: true }).waitFor();
+  assert.equal(await page.getByRole("button", { name: "Send message", exact: true }).isEnabled(), true, "images can be sent without text");
+  await page.getByRole("button", { name: "Remove green.png", exact: true }).click();
+  assert.equal(await page.getByRole("group", { name: "Attached images", exact: true }).count(), 0);
+  await upload.setInputFiles({ name: "notes.txt", mimeType: "text/plain", buffer: Buffer.from("not an image") });
+  await page.getByText("Add up to 4 PNG, JPEG, WebP, or GIF images, up to 10 MB each.", { exact: true }).waitFor();
+  await upload.setInputFiles(Array.from({ length: 5 }, (_, index) => ({ ...imageFile, name: `image-${index}.png` })));
+  assert.equal(await page.getByRole("group", { name: "Attached images", exact: true }).getByRole("img").count(), 4, "overflow keeps only the allowed four files");
+  while (await page.getByRole("button", { name: /^Remove image-/ }).count()) await page.getByRole("button", { name: /^Remove image-/ }).first().click();
+  await upload.setInputFiles({ name: "broken.png", mimeType: "image/png", buffer: Buffer.from("invalid image") });
+  await input.fill("Keep this draft");
+  await page.getByRole("button", { name: "Send message", exact: true }).click();
+  await page.getByText("Couldn’t prepare this image. Try a smaller PNG, JPEG, WebP, or GIF.", { exact: true }).waitFor();
+  assert.equal(await input.inputValue(), "Keep this draft");
+  assert.equal(await page.getByRole("button", { name: "Remove broken.png", exact: true }).count(), 1, "preparation failure preserves attachments");
+  await page.getByRole("button", { name: "Remove broken.png", exact: true }).click();
+  await input.fill("");
+  async function insertImage(eventName) {
+    await input.evaluate((element, { encoded, eventName }) => {
+      const bytes = Uint8Array.from(atob(encoded), c => c.charCodeAt(0));
+      const transfer = new DataTransfer(); transfer.items.add(new File([bytes], `${eventName}.png`, { type: "image/png" }));
+      element.dispatchEvent(eventName === "paste" ? new ClipboardEvent("paste", { clipboardData: transfer, bubbles: true, cancelable: true }) : new DragEvent("drop", { dataTransfer: transfer, bubbles: true, cancelable: true }));
+    }, { encoded: png.toString("base64"), eventName });
+  }
+  await insertImage("paste");
+  await insertImage("drop");
+  assert.equal(await page.getByRole("group", { name: "Attached images", exact: true }).getByRole("img").count(), 2);
+  await page.screenshot({ path: "/tmp/openmods-images-desktop.png", animations: "disabled" });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.screenshot({ path: "/tmp/openmods-images-mobile.png", animations: "disabled" });
+  const sendBounds = await page.getByRole("button", { name: "Send message", exact: true }).boundingBox();
+  assert.ok(sendBounds.x >= 0 && sendBounds.x + sendBounds.width <= 390 && sendBounds.y + sendBounds.height <= 844, "image composer controls fit a small phone");
+  const beforeImages = requests.length;
+  await page.getByRole("button", { name: "Send message", exact: true }).click();
+  await page.getByRole("button", { name: "Stop response", exact: true }).waitFor();
+  await page.getByRole("button", { name: "Send message", exact: true }).waitFor();
+  assert.equal(requests.length, beforeImages + 1);
+  const sentImages = requests.at(-1).message.parts.filter(part => part.type === "file");
+  assert.equal(sentImages.length, 2);
+  assert.ok(sentImages.every(part => part.mediaType === "image/jpeg" && part.url.startsWith("data:image/jpeg;base64,")), "normalized image bytes reach the chat transport");
+  assert.equal(await page.getByRole("group", { name: "Attached images", exact: true }).count(), 0);
+  await page.reload(); await input.waitFor();
+  assert.equal(await page.getByRole("img", { name: /^(paste|drop)\.jpg$/ }).count(), 2, "saved image messages reload");
+  const assistantCount = mock.histories.get(chatId).filter(message => message.role === "assistant").length;
+  mock.delaySnapshot(chatId, 2);
+  await page.reload(); await input.waitFor();
+  await input.fill("Keep this draft while history catches up");
+  await page.waitForFunction(count => document.querySelectorAll(".is-assistant").length === count, assistantCount);
+  assert.equal(await input.inputValue(), "Keep this draft while history catches up", "recovery from a late snapshot preserves the new draft");
+  assert.equal(await page.getByRole("img", { name: /^(paste|drop)\.jpg$/ }).count(), 2);
   const [chat] = await sql`SELECT last_message_preview FROM chats WHERE id=${chatId}`;
   assert.equal(chat.last_message_preview, null, "transcripts are stored by Trigger.dev, without changing chat preview rows");
   assert.deepEqual(errors, []);
-  console.log("Composer passed: compact controls, dictation start/stop/final words, edits, limits, permission/network/unsupported/startup failures, stale-result protection, unmount cleanup; centered 56px welcome, docking/motion, desktop/mobile fit, scrolling, keyboard, streaming, retry and transcript persistence. Synthetic local sessions, mock speech recognition and streaming; no live microphone, OAuth or OpenAI call.");
+  console.log("Composer passed: image upload/paste/drop, previews/removal, image-only send, validation/preparation failures, transport and transcript persistence; no render-time state updates or Clock warnings; desktop/mobile layout, dictation, keyboard, streaming, retry. Synthetic local sessions and mock streaming; no live microphone, OAuth or OpenAI call.");
 } catch (error) {
   const page = contexts[0]?.pages()[0];
   if (page) await page.screenshot({ path: "/tmp/openmods-composer-failure.png" });

@@ -2,9 +2,13 @@
 import { createContext, useContext, useEffect, useRef, useState, useCallback, type CSSProperties, type ReactNode } from 'react';
 import { MaximizeIcon, MinimizeIcon, MonitorIcon, RefreshCwIcon, XIcon } from 'lucide-react';
 import type RFB from '@novnc/novnc';
-import { openDesktop } from '@/app/chats/desktop-actions';
 import { Button } from '@/components/ui/button';
 const DesktopContext = createContext<{ open: boolean; toggle: () => void } | null>(null);
+async function openDesktop(chatId: string) {
+  const response = await fetch(`/api/chats/${encodeURIComponent(chatId)}/desktop`, { method: 'POST' });
+  if (!response.ok) throw new Error('Desktop unavailable.');
+  return response.json() as Promise<{ url: string; expiresAt: number }>;
+}
 export function DesktopButton() {
   const desktop = useContext(DesktopContext);
   if (!desktop) return null;
@@ -63,9 +67,11 @@ function DesktopPanel({ chatId, name, onClose, fullscreen, onExpand }: { chatId:
   const panel = useRef<HTMLDivElement>(null);
   const screen = useRef<HTMLDivElement>(null);
   const client = useRef<RFB | null>(null);
+  const accessRequest = useRef<{ chatId: string; attempt: number; promise: ReturnType<typeof openDesktop> } | null>(null);
   const closeButton = useRef<HTMLButtonElement>(null);
   const [status, setStatus] = useState('Connecting to your computer…');
   const [connected, setConnected] = useState(false);
+  const [connecting, setConnecting] = useState(true);
   const [attempt, setAttempt] = useState(0);
   const [control, setControl] = useState(false);
   useEffect(() => {
@@ -74,18 +80,22 @@ function DesktopPanel({ chatId, name, onClose, fullscreen, onExpand }: { chatId:
     let connection: RFB | undefined;
     void (async () => {
       try {
-        const [access, module] = await Promise.all([openDesktop(chatId), import('@novnc/novnc')]);
+        // React Strict Mode replays the effect; reuse its in-flight request.
+        if (!accessRequest.current || accessRequest.current.chatId !== chatId || accessRequest.current.attempt !== attempt) {
+          accessRequest.current = { chatId, attempt, promise: openDesktop(chatId) };
+        }
+        const [access, module] = await Promise.all([accessRequest.current.promise, import('@novnc/novnc')]);
         if (disposed || !screen.current) return;
         connection = new module.default(screen.current, access.url);
         client.current = connection;
         connection.viewOnly = true;
         connection.scaleViewport = true;
         connection.resizeSession = false;
-        connection.addEventListener('connect', () => { if (!disposed) { setConnected(true); setStatus('Connected · View only'); } });
-        connection.addEventListener('disconnect', () => { if (!disposed) { setConnected(false); setStatus('Disconnected. Reconnect to continue.'); } });
-        connection.addEventListener('securityfailure', () => { if (!disposed) { setConnected(false); setStatus('Desktop access expired. Reconnect to renew it.'); } });
+        connection.addEventListener('connect', () => { if (!disposed) { setConnecting(false); setConnected(true); setStatus('Connected · View only'); } });
+        connection.addEventListener('disconnect', () => { if (!disposed) { setConnecting(false); setConnected(false); setStatus('Disconnected. Reconnect to continue.'); } });
+        connection.addEventListener('securityfailure', () => { if (!disposed) { setConnecting(false); setConnected(false); setStatus('Desktop access expired. Reconnect to renew it.'); } });
         timer = setTimeout(() => { if (!disposed) setStatus('Access expires soon. Reconnect if the connection drops.'); }, Math.max(0, access.expiresAt - Date.now() - 60000));
-      } catch { if (!disposed) setStatus('Could not open the computer. Check Daytona configuration and retry.'); }
+      } catch { if (!disposed) { setConnecting(false); setStatus('Could not open the computer. Please try again.'); } }
     })();
     return () => { disposed = true; clearTimeout(timer); connection?.disconnect(); client.current = null; };
   }, [chatId, attempt]);
@@ -102,12 +112,12 @@ function DesktopPanel({ chatId, name, onClose, fullscreen, onExpand }: { chatId:
     document.addEventListener('keydown', key);
     return () => document.removeEventListener('keydown', key);
   }, [fullscreen, control, onClose, onExpand]);
-  function reconnect() { setConnected(false); setControl(false); setStatus('Reconnecting…'); setAttempt(v => v + 1); }
+  function reconnect() { if (connecting) return; setConnecting(true); setConnected(false); setControl(false); setStatus('Reconnecting…'); setAttempt(v => v + 1); }
   return <div ref={panel} role="region" aria-label="Computer desktop" className="desktop-panel flex min-h-0 flex-col bg-[#151515] text-[#ededed]">
     <div className="flex h-16 shrink-0 items-center gap-1 border-b border-white/10 px-4 sm:px-6">
       <MonitorIcon className="mr-2 size-5 shrink-0 text-[#b9b9b9]" />
       <h2 className="mr-auto min-w-0 truncate text-base font-medium sm:text-lg">{name}’s computer</h2>
-      <Button size="icon" variant="ghost" onClick={reconnect} aria-label="Reconnect desktop" title="Reconnect desktop" className="text-[#a1a1a1] hover:bg-white/10 hover:text-white"><RefreshCwIcon className="size-4" /></Button>
+      <Button size="icon" variant="ghost" disabled={connecting} onClick={reconnect} aria-label="Reconnect desktop" title="Reconnect desktop" className="text-[#a1a1a1] hover:bg-white/10 hover:text-white"><RefreshCwIcon className="size-4" /></Button>
       <Button size="icon" variant="ghost" onClick={onExpand} aria-label={fullscreen ? 'Exit fullscreen' : 'Enter fullscreen'} title={fullscreen ? 'Return to split view' : 'Expand computer'} className="text-[#a1a1a1] hover:bg-white/10 hover:text-white">{fullscreen ? <MinimizeIcon className="size-4" /> : <MaximizeIcon className="size-4" />}</Button>
       <Button ref={closeButton} size="icon" variant="ghost" onClick={onClose} aria-label="Close desktop" className="text-[#a1a1a1] hover:bg-white/10 hover:text-white"><XIcon className="size-5" /></Button>
     </div>
@@ -117,7 +127,7 @@ function DesktopPanel({ chatId, name, onClose, fullscreen, onExpand }: { chatId:
         {!connected && <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-[#201d20] px-6 text-center">
           <MonitorIcon className="size-9 text-[#f278b5]" />
           <p role="status" className="max-w-72 text-sm text-[#c3bfc2]">{status}</p>
-          <Button variant="secondary" onClick={reconnect} className="rounded-full">Try again</Button>
+          {!connecting && <Button variant="secondary" onClick={reconnect} className="rounded-full">Try again</Button>}
         </div>}
       </div>
       <div className="flex shrink-0 flex-wrap items-center justify-center gap-3">

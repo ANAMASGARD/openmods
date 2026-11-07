@@ -57,3 +57,7 @@ __pycache__/
 
 # Trigger.dev local worker artifacts
 .trigger
+
+# Isolated browser-check build output
+/.next-chat-check/
+/.next-verify/

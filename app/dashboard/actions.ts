@@ -8,6 +8,8 @@ import { auth0 } from "@/lib/auth0";
 import { parseBotInput, parseBotUpdateInput, type BotInputErrors } from "@/lib/bot-input";
 import { getDb } from "@/lib/db";
 import { createBotSandbox, deleteBotSandbox } from "@/lib/daytona";
+import { BotProvisioningError } from "@/lib/bot-provisioning-error";
+import { reportOperation } from "@/lib/monitoring";
 import { bots, chats, chatMembers } from "@/lib/db/schema";
 
 export type CreateBotState = {
@@ -43,10 +45,16 @@ export async function createBot(formData: FormData): Promise<CreateBotState> {
       db.insert(chats).values({ id: chatId, userId: session.user.sub, kind: "direct" }),
       db.insert(chatMembers).values({ chatId, botId }),
     ]);
-  } catch {
+  } catch (error) {
     if (sandboxId) {
       try { await deleteBotSandbox(sandboxId); } catch { console.error("Sandbox cleanup required", { sandboxId }); }
     }
+    if (error instanceof BotProvisioningError) {
+      return { error: error.stage === "toolkit"
+        ? "We couldn’t install your bot’s tools. Your details are still here — please try again."
+        : "We couldn’t prepare your bot’s computer. Your details are still here — please try again." };
+    }
+    reportOperation(sandboxId ? "bot-create-save" : "bot-create-config");
     return { error: "We couldn’t save your bot. Your details are still here — please try again." };
   }
 

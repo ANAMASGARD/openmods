@@ -2,6 +2,8 @@ import { installSecurityToolkit } from './security-toolkit';
 import { privateOperation } from './private-operation';
 import { Daytona, DaytonaNotFoundError, DaytonaConflictError } from '@daytona/sdk';
 import { desktopWebSocketUrl, sandboxEnvironment, sandboxLabels } from './sandbox-policy';
+import { reportOperation } from './monitoring';
+import { BotProvisioningError } from './bot-provisioning-error';
 
 export const MEMORY_FILE = 'MEMORY.md';
 let client: Daytona | undefined;
@@ -11,16 +13,22 @@ export function getDaytona() {
 }
 async function createBotSandboxInternal(botId: string) {
   const api = getDaytona();
-  const sandbox = await api.create({ labels: sandboxLabels(botId), autoStopInterval: 15, autoDeleteInterval: -1 });
+  const sandbox = await api.create({ labels: sandboxLabels(botId), autoStopInterval: 15, autoDeleteInterval: -1 }).catch(() => {
+    reportOperation('bot-sandbox-create');
+    throw new BotProvisioningError('create');
+  });
+  let stage: 'toolkit' | 'memory' = 'toolkit';
   try {
     if (process.env.OPENMODS_SECURITY_TOOLS === 'true') await installSecurityToolkit(sandbox);
+    stage = 'memory';
     const result = await sandbox.process.executeCommand(`touch ${MEMORY_FILE}`);
     if (result.exitCode !== 0) throw new Error('Could not initialize bot memory.');
     return sandbox.id;
-  } catch (error) {
+  } catch {
+    reportOperation(`bot-sandbox-${stage}`);
     try { await api.delete(sandbox); }
     catch { console.error('Sandbox cleanup required', { sandboxId: sandbox.id, operation: 'initialize' }); }
-    throw error;
+    throw new BotProvisioningError(stage);
   }
 }
 async function getBotSandboxInternal(sandboxId: string, signal?: AbortSignal) {

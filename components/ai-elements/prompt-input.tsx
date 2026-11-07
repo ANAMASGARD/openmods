@@ -501,6 +501,7 @@ export type PromptInputProps = Omit<
   maxFiles?: number;
   // bytes
   maxFileSize?: number;
+  disabled?: boolean;
   onError?: (err: {
     code: "max_files" | "max_file_size" | "accept";
     message: string;
@@ -519,6 +520,7 @@ export const PromptInput = ({
   syncHiddenInput,
   maxFiles,
   maxFileSize,
+  disabled = false,
   onError,
   onSubmit,
   children,
@@ -531,6 +533,7 @@ export const PromptInput = ({
   // Refs
   const inputRef = useRef<HTMLInputElement | null>(null);
   const formRef = useRef<HTMLFormElement | null>(null);
+  const submitting = useRef(false);
 
   // ----- Local attachments (only used when no provider)
   const [items, setItems] = useState<(FileUIPart & { id: string })[]>([]);
@@ -577,6 +580,7 @@ export const PromptInput = ({
 
   const addLocal = useCallback(
     (fileList: File[] | FileList) => {
+      if (disabled) return;
       const incoming = [...fileList];
       const accepted = incoming.filter((f) => matchesAccept(f));
       if (incoming.length && accepted.length === 0) {
@@ -597,50 +601,55 @@ export const PromptInput = ({
         return;
       }
 
-      setItems((prev) => {
-        const capacity =
-          typeof maxFiles === "number"
-            ? Math.max(0, maxFiles - prev.length)
-            : undefined;
-        const capped =
-          typeof capacity === "number" ? sized.slice(0, capacity) : sized;
-        if (typeof capacity === "number" && sized.length > capacity) {
-          onError?.({
-            code: "max_files",
-            message: "Too many files. Some were not added.",
-          });
-        }
-        const next: (FileUIPart & { id: string })[] = [];
-        for (const file of capped) {
-          next.push({
-            filename: file.name,
-            id: nanoid(),
-            mediaType: file.type,
-            type: "file",
-            url: URL.createObjectURL(file),
-          });
-        }
-        return [...prev, ...next];
-      });
+      // Updaters may run during render (and twice in Strict Mode). Keep error
+      // callbacks, object URL creation and revocation in the event handler.
+      const prev = filesRef.current;
+      const capacity =
+        typeof maxFiles === "number"
+          ? Math.max(0, maxFiles - prev.length)
+          : undefined;
+      const capped =
+        typeof capacity === "number" ? sized.slice(0, capacity) : sized;
+      if (typeof capacity === "number" && sized.length > capacity) {
+        onError?.({
+          code: "max_files",
+          message: "Too many files. Some were not added.",
+        });
+      }
+      const next: (FileUIPart & { id: string })[] = [];
+      for (const file of capped) {
+        next.push({
+          filename: file.name,
+          id: nanoid(),
+          mediaType: file.type,
+          type: "file",
+          url: URL.createObjectURL(file),
+        });
+      }
+      filesRef.current = [...prev, ...next];
+      setItems(filesRef.current);
     },
-    [matchesAccept, maxFiles, maxFileSize, onError]
+    [disabled, matchesAccept, maxFiles, maxFileSize, onError]
   );
 
   const removeLocal = useCallback(
-    (id: string) =>
-      setItems((prev) => {
-        const found = prev.find((file) => file.id === id);
-        if (found?.url) {
-          URL.revokeObjectURL(found.url);
-        }
-        return prev.filter((file) => file.id !== id);
-      }),
-    []
+    (id: string) => {
+      if (disabled) return;
+      const prev = filesRef.current;
+      const found = prev.find((file) => file.id === id);
+      if (found?.url) {
+        URL.revokeObjectURL(found.url);
+      }
+      filesRef.current = prev.filter((file) => file.id !== id);
+      setItems(filesRef.current);
+    },
+    [disabled]
   );
 
   // Wrapper that validates files before calling provider's add
   const addWithProviderValidation = useCallback(
     (fileList: File[] | FileList) => {
+      if (disabled) return;
       const incoming = [...fileList];
       const accepted = incoming.filter((f) => matchesAccept(f));
       if (incoming.length && accepted.length === 0) {
@@ -679,21 +688,20 @@ export const PromptInput = ({
         controller?.attachments.add(capped);
       }
     },
-    [matchesAccept, maxFileSize, maxFiles, onError, files.length, controller]
+    [disabled, matchesAccept, maxFileSize, maxFiles, onError, files.length, controller]
   );
 
   const clearAttachments = useCallback(
-    () =>
-      usingProvider
-        ? controller?.attachments.clear()
-        : setItems((prev) => {
-            for (const file of prev) {
-              if (file.url) {
-                URL.revokeObjectURL(file.url);
-              }
-            }
-            return [];
-          }),
+    () => {
+      if (usingProvider) controller?.attachments.clear();
+      else {
+        for (const file of filesRef.current) {
+          if (file.url) URL.revokeObjectURL(file.url);
+        }
+        filesRef.current = [];
+        setItems([]);
+      }
+    },
     [usingProvider, controller]
   );
 
@@ -844,6 +852,8 @@ export const PromptInput = ({
   const handleSubmit: FormEventHandler<HTMLFormElement> = useCallback(
     async (event) => {
       event.preventDefault();
+      if (disabled || submitting.current) return;
+      submitting.current = true;
 
       const form = event.currentTarget;
       const text = usingProvider
@@ -853,22 +863,17 @@ export const PromptInput = ({
             return (formData.get("message") as string) || "";
           })();
 
-      // Reset form immediately after capturing text to avoid race condition
-      // where user input during async blob conversion would be lost
-      if (!usingProvider) {
-        form.reset();
-      }
-
       try {
         // Convert blob URLs to data URLs asynchronously
         const convertedFiles: FileUIPart[] = await Promise.all(
-          files.map(async ({ id: _id, ...item }) => {
+          files.map(async ({ filename, mediaType, type, url }) => {
+            const item = { filename, mediaType, type, url };
             if (item.url?.startsWith("blob:")) {
               const dataUrl = await convertBlobUrlToDataUrl(item.url);
-              // If conversion failed, keep the original blob URL
+              if (!dataUrl) throw new Error("Could not read the attachment. Please try again.");
               return {
                 ...item,
-                url: dataUrl ?? item.url,
+                url: dataUrl,
               };
             }
             return item;
@@ -897,9 +902,11 @@ export const PromptInput = ({
         }
       } catch {
         // Don't clear on error - user may want to retry
+      } finally {
+        submitting.current = false;
       }
     },
-    [usingProvider, controller, files, onSubmit, clear]
+    [disabled, usingProvider, controller, files, onSubmit, clear]
   );
 
   // Render with or without local provider
@@ -910,6 +917,7 @@ export const PromptInput = ({
         aria-label="Upload files"
         className="hidden"
         multiple={multiple}
+        disabled={disabled}
         onChange={handleChange}
         ref={inputRef}
         title="Upload files"

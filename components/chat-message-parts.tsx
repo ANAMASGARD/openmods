@@ -5,6 +5,7 @@ import type { UIMessage } from 'ai';
 import type { ChatMetadata, BotIdentity } from '@/lib/sandbox-tools';
 import { ChatAvatar } from '@/components/chat-avatar';
 import { MessageResponse } from '@/components/ai-elements/message';
+import { isChatImage } from '@/lib/chat-images';
 export function ChatMessageParts({ message, fallback, active = false }: { message: UIMessage; fallback: string; active?: boolean }) {
   const metadata = message.metadata as ChatMetadata | undefined;
   const author = metadata?.author;
@@ -12,6 +13,7 @@ export function ChatMessageParts({ message, fallback, active = false }: { messag
     {message.role === 'user' && metadata?.recipient && <p className="mb-1 text-xs text-muted-foreground">To {metadata.recipient.name}</p>}
     {message.role === 'assistant' && <Identity author={author} fallback={fallback} />}
     {message.parts.map((part, index) => {
+      if (part.type === 'file' && isChatImage(part)) return <Image key={index} unoptimized width={640} height={480} src={part.url} alt={part.filename || 'Attached image'} className="my-2 max-h-80 w-auto max-w-full rounded-2xl object-contain" />;
       if (part.type === 'text') return message.role === 'user' ? <p key={index} className="whitespace-pre-wrap wrap-anywhere leading-7">{part.text}</p> : <MessageResponse key={index}>{part.text}</MessageResponse>;
       if (!part.type.startsWith('tool-')) return null;
       const tool = part as unknown as { type: string; state: string; output?: unknown; errorText?: string };

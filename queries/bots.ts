@@ -1,4 +1,5 @@
 import "server-only";
+import { cache } from "react";
 import { and, asc, desc, eq } from "drizzle-orm";
 import { auth0 } from "@/lib/auth0";
 import { getDb } from "@/lib/db";
@@ -9,7 +10,9 @@ export async function getUserChats() {
   return getOwnedChats();
 }
 
-export async function getUserChat(chatId: string) {
+// Deduplicate ownership/member reads within one render or action, never across
+// requests or users. The page and transcript loader both require this check.
+export const getUserChat = cache(async (chatId: string) => {
   const session = await auth0.getSession();
   if (!session?.user.sub) return null;
   const ownedChats = await getOwnedChats(chatId);
@@ -24,7 +27,7 @@ export async function getUserChat(chatId: string) {
     .orderBy(asc(chatMembers.joinedAt), asc(chatMembers.botId));
   const bot = chat.kind === "direct" ? members[0] : undefined;
   return { ...chat, members, bot: bot ? { ...bot, instructions: bot.instructions ?? "" } : null };
-}
+});
 
 async function getOwnedChats(chatId?: string) {
   const session = await auth0.getSession();
