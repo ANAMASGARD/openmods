@@ -72,6 +72,7 @@
     "drizzle-orm": "^0.45.4",
     "drizzle-zod": "^0.8.3",
     "embla-carousel-react": "^8.6.0",
+    "firecrawl": "^4.52.0",
     "framer-motion": "^14.6.0",
     "lucide-react": "^1.60.0",
     "media-chrome": "^4.19.4",

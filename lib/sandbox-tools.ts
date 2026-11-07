@@ -1,3 +1,4 @@
+import { createWebTools } from './web-tools';
 import { privateOperation } from './private-operation';
 import { reportToolOutcome } from './monitoring';
 import { tool, type InferUITools, type UIMessage, type ToolSet, type UIDataTypes } from 'ai';
@@ -41,6 +42,7 @@ export function createSandboxTools(resolve: () => Promise<string>) {
     { type: 'file' as const, mediaType: output.mediaType, data: { type: 'data' as const, data: output.base64 } },
   ] });
   return {
+    ...createWebTools(resolve),
     bash: tool({ description: 'Run a shell command in your isolated computer. Each call starts a fresh shell.', inputSchema: z.object({ command: z.string().min(1).max(20000), cwd: z.string().optional(), timeout: z.number().int().min(1).max(600).default(60) }), execute: async ({ command, cwd, timeout }, { abortSignal }) => {
       const result = await (await sandbox(abortSignal)).process.executeCommand(command, cwd?.replace(/^~(\/|$)/, '') || undefined, undefined, timeout);
       return { exitCode: result.exitCode, output: truncate(result.result) };

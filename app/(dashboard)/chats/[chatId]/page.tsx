@@ -36,7 +36,7 @@ async function ChatContent({ params }: ChatPageProps) {
   if (!chat) notFound();
 
   return (
-    <DesktopWorkspace chatId={chat.id} enabled={chat.kind === "direct" && !!chat.bot}>
+    <DesktopWorkspace name={chat.name} chatId={chat.id} enabled={chat.kind === "direct" && !!chat.bot}>
       <ChatHeader name={chat.name} avatar={chat.avatar} bot={chat.bot} members={chat.kind === "group" ? chat.members : undefined} />
       {chat.kind === "group" && <div className="flex justify-end border-b px-4 py-2"><GroupDialog group={{ id: chat.id, name: chat.name, members: chat.members }} /></div>}
       <ChatConversation kind={chat.kind} members={chat.members} key={chat.id} chatId={chat.id} name={chat.name} initialMessages={history?.messages ?? []} initialSession={history?.session} />

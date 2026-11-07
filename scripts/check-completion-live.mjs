@@ -25,7 +25,7 @@ try {
   await page.getByText('Connected · View only',{exact:true}).waitFor({timeout:120000});
   let sockets=0;page.on('websocket',()=>sockets++);
   await page.getByRole('button',{name:'Enter fullscreen',exact:true}).click();
-  await page.getByRole('button',{name:'Take control',exact:true}).click();
+  await page.getByRole('button',{name:'Take over',exact:true}).click();
   await page.getByText(/You have control/).waitFor();
   assert.equal(sockets,0,'fullscreen retains connection');
   await page.waitForTimeout(3000);

@@ -237,3 +237,42 @@ OPENMODS_BROWSER_BUILD=1 node scripts/check-chat-composer.mjs http://localhost:3
 ```
 
 The browser helpers use synthetic local Auth0 cookies. They establish application ownership behavior, not an actual OAuth login round trip.
+
+## Firecrawl webpage reading
+
+The chat worker exposes `readWebPage` using the official `firecrawl` Node SDK.
+Paste a public HTTP(S) link with a task, such as “Summarize https://example.com”.
+The agent is instructed to read it first, use the extracted Markdown, and cite the URL.
+Long pages are returned in 18,000-character sections with `nextOffset`; no silent
+truncation. This reads one webpage, not an entire website or authenticated content,
+and does not navigate the visible Daytona desktop.
+
+Set `FIRECRAWL_API_KEY` in `.env.local` for development and in the Trigger.dev
+production environment for deployment. Never use a `NEXT_PUBLIC_` variable or put
+this key in the sandbox. Restart `npm run dev:trigger` after setting it. The SDK
+supports keyless access where available, but a working key is recommended for
+submission. `.env.local` is not uploaded to production automatically.
+
+Extraction is authorized against current chat membership, runs within the existing
+sequential tool wrapper with tracing suppressed, and stores tool results in the
+existing durable transcript. Provider errors are sanitized. Public URL validation
+rejects credentials, local hosts and literal IP addresses; Firecrawl performs the
+remote retrieval. Stop discards in-flight results and prevents subsequent actions;
+an already submitted provider request may still finish. Requests time out within
+55 seconds with no automatic retries. A per-agent cache holds up to five pages for
+ten minutes, with a 2,000,000-character document limit and an explicit oversize error.
+
+Verification: `node --import tsx --test tests/web-tools.test.ts`; then run a real
+chat with a public link, check the `readWebPage` tool result, follow-up response,
+and reload persistence. Live extraction requires service access and available credits.
+Official reference: https://docs.firecrawl.dev/sdks/node
+
+Local Firecrawl verification (2026-11-07): API key loaded without exposing it;
+real example.com extraction passed. `scripts/check-firecrawl-live.mjs` passed a
+real Trigger/OpenAI/Firecrawl turn with a cited response and a follow-up retaining
+the URL. The check uses isolated database fixtures and removes them afterward;
+it does not test OAuth, a production deployment, or login-protected websites.
+Run with `node --env-file=.env.local --import tsx scripts/check-firecrawl-live.mjs`
+while the development worker is running. SDK 4.52 uses `maxRetries: 1` for one
+request attempt; zero prevents all HTTP requests. Focused validation passed:
+24 completion tests, 3 web-tool tests, TypeScript, and changed-file ESLint.

@@ -172,7 +172,7 @@ export function ChatConversation({ chatId, name, initialMessages, initialSession
             {dictation.phase === "starting" ? "Waiting for microphone permission…" : dictation.phase === "listening" ? "Listening… Tap the microphone to finish." : dictation.phase === "stopping" ? "Finishing dictation…" : "AI can make mistakes. Messages are saved to this chat."}
           </p>
         </motion.div>
-        {!hasMessages && <div className="mt-6 flex flex-wrap justify-center gap-2" aria-label="Suggested prompts">
+        {!hasMessages && <div className="mt-6 flex flex-wrap justify-center gap-2" data-chat-starters aria-label="Suggested prompts">
           {starters.map(({ label, text, icon: Icon }) => <Button key={label} variant="outline" className="h-9 rounded-full border-white/[0.08] px-3 font-normal text-muted-foreground hover:text-foreground dark:bg-transparent" onClick={() => insertPrompt(text)}><Icon data-icon="inline-start" />{label}</Button>)}
         </div>}
       </div>

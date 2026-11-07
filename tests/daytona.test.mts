@@ -23,6 +23,9 @@ mock.module(require.resolve('@daytona/sdk'), { namedExports: {
     async delete() { deleted++; }
   },
 } });
+let toolkitCalls = 0;
+let toolkitFails = false;
+mock.module(require.resolve('../lib/security-toolkit'), { namedExports: { installSecurityToolkit: async () => { toolkitCalls++; if (toolkitFails) throw new Error('Install failed'); } } });
 process.env.DAYTONA_API_KEY = 'test-only';
 process.env.OPENMODS_ENV = 'development';
 const api = await import('../lib/daytona');
@@ -54,4 +57,19 @@ test('delete is idempotent for missing sandbox', async () => {
   missing = false;
   await api.deleteBotSandbox('sandbox-test');
   assert.equal(deleted, 2);
+});
+
+test('opt-in toolkit installs before returning a bot and failed installation cleans up', async () => {
+  process.env.OPENMODS_SECURITY_TOOLS = 'true';
+  try {
+    await api.createBotSandbox('toolkit-bot');
+    assert.equal(toolkitCalls, 1);
+    toolkitFails = true;
+    const before = deleted;
+    await assert.rejects(api.createBotSandbox('failed-toolkit'));
+    assert.equal(deleted, before + 1);
+  } finally {
+    toolkitFails = false;
+    delete process.env.OPENMODS_SECURITY_TOOLS;
+  }
 });
